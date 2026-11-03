@@ -2757,6 +2757,7 @@ void Runner_destroyInstance(MAYBE_UNUSED Runner* runner, Instance* inst, bool ru
     if (inst->destroyed)
         return;
     inst->destroyed = true;
+    inst->destroyedDuringCollisions = runner->dispatchingCollisions;
     if (runDestroyEvent)
         Runner_executeEvent(runner, inst, EVENT_DESTROY, 0);
     Runner_executeCleanupEvent(runner, inst);
@@ -3563,7 +3564,9 @@ static void dispatchCollisionEvents(Runner* runner) {
 
                 for (int32_t snapIdx = snapBase; snapEnd > snapIdx; snapIdx++) {
                     Instance* other = runner->instanceSnapshots[snapIdx];
-                    if (!other->active) continue;
+                    // An instance destroyed earlier in this pass still gets collided with. AM2R relies on
+                    // it: a missile destroys itself in its own event, before the Metroid's event deals the damage.
+                    if (!other->active && !other->destroyedDuringCollisions) continue;
                     if (other == self) continue;
 
                     if (mostSpecificCollisionTarget(runner, self, other) != targetObjIndex)
@@ -4576,7 +4579,11 @@ void Runner_step(Runner* runner) {
     Video_executePendingAsyncEvents(runner);
 
     // Dispatch collision events
-    if (!runner->physics) dispatchCollisionEvents(runner);
+    if (!runner->physics) {
+        runner->dispatchingCollisions = true;
+        dispatchCollisionEvents(runner);
+        runner->dispatchingCollisions = false;
+    }
 
     // Execute End Step for all instances
     Runner_executeEventForAll(runner, EVENT_STEP, STEP_END);

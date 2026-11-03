@@ -676,6 +676,7 @@ struct Runner {
     Renderer* renderer;
     FileSystem* fileSystem;
     AudioSystem* audioSystem;
+    bool dispatchingCollisions;
     Room* currentRoom;
     struct PhysicsEngine* physics;
     struct PhysicsResources* physicsResources; // shared fixture/joint handles; allocated lazily

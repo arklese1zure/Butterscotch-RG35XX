@@ -2297,6 +2297,9 @@ static void handlePushEnv(VMContext* ctx, uint32_t instr, uint32_t instrAddr) {
         // For nested with-blocks, other refers to the saved instance from the parent env frame
         if (frame->parent != nullptr) {
             switchToInstance(ctx, frame->parent->savedInstance);
+        } else if (frame->savedOtherInstance != nullptr && frame->savedOtherInstance->destroyed) {
+            // Collided with an instance that destroyed itself earlier in this pass: nothing left to run.
+            ctx->ip = instrAddr + jumpOffset;
         } else if (frame->savedOtherInstance != nullptr) {
             // No parent env frame, but we have an otherInstance (example: from collision events), so let's use it!
             switchToInstance(ctx, frame->savedOtherInstance);
