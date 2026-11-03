@@ -590,6 +590,12 @@ static void SWRenderer_gpuSetBlendEnable(Renderer* renderer, bool enable)
     (void)renderer; (void)enable;
 }
 
+static void SWRenderer_gpuSetTexFilter(Renderer* renderer, bool enable)
+{
+    // Sampling is always nearest-neighbour here, so there's nothing to switch.
+    (void)renderer; (void)enable;
+}
+
 static void SWRenderer_gpuSetAlphaTestEnable(Renderer* renderer, bool enable)
 {
     UNIMP();
@@ -1229,6 +1235,7 @@ Renderer* SWRenderer_create(void)
     swrVtable.gpuSetBlendMode          = SWRenderer_gpuSetBlendMode;
     swrVtable.gpuSetBlendModeExt       = SWRenderer_gpuSetBlendModeExt;
     swrVtable.gpuSetBlendEnable        = SWRenderer_gpuSetBlendEnable;
+    swrVtable.gpuSetTexFilter          = SWRenderer_gpuSetTexFilter;
     swrVtable.gpuSetAlphaTestEnable    = SWRenderer_gpuSetAlphaTestEnable;
     swrVtable.gpuSetAlphaTestRef       = SWRenderer_gpuSetAlphaTestRef;
     swrVtable.gpuSetColorWriteEnable   = SWRenderer_gpuSetColorWriteEnable;
