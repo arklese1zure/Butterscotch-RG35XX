@@ -6,3 +6,5 @@ CMakeUserPresets.json
 compat/config.mk
 /.vs
 *.log
+port/test-save/
+port/*.txt
