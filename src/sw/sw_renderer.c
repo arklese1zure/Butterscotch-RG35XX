@@ -256,7 +256,7 @@ static void SWRenderer_drawSprite(Renderer* renderer, int32_t tpagIndex, float x
 }
 
 static void SWRenderer_drawSpritePart(Renderer* renderer, int32_t tpagIndex,
-                                      int32_t srcOffX, int32_t srcOffY, int32_t srcW, int32_t srcH,
+                                      float srcOffX, float srcOffY, float srcW, float srcH,
                                       float x, float y, float xscale, float yscale, float angleDeg,
                                       float pivotX, float pivotY, uint32_t color, float alpha)
 {
