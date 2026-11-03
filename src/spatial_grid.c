@@ -97,8 +97,13 @@ void SpatialGrid_syncGrid(Runner* runner, SpatialGrid* grid) {
 
         // We do not care about removed/inactive/destroyed instances, because they would've been already been removed from the grid on the "SpatialGrid_markInstanceAsDirty" call
         // We also do not care if the spatial grid is not dirty
-        if (instance == nullptr || !instance->active || instance->destroyed || !instance->spatialGridDirty)
+        if (instance == nullptr || instance->destroyed || !instance->spatialGridDirty)
             continue;
+        if (!instance->active) {
+            // Not queued any more, so a later activation can queue it again.
+            instance->spatialGridDirty = false;
+            continue;
+        }
 
         instance->spatialGridDirty = false;
 
@@ -136,6 +141,9 @@ void SpatialGrid_markInstanceAsDirty(SpatialGrid* grid, Instance* dirtyInstance)
         // Destroyed instances are updated instantly because, if we didn't, we would need to track the ID + all grids that the instance is in
         // Guard against stale entries left behind by room transitions or earlier clears of collisionCells.
         SpatialGrid_removeInstance(grid, dirtyInstance);
+        // Clear it even if the instance wasn't in the grid yet (activated and deactivated again before a
+        // sync). Otherwise the next activation sees it as already queued, and it never gets back in the grid.
+        dirtyInstance->spatialGridDirty = false;
         return;
     }
 

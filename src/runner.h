@@ -1015,11 +1015,14 @@ static inline void Runner_setActiveState(Runner* runner, Instance* instance, boo
             logInfo("VM: Instance %s (instanceId=%d,objectIndex=%d) marked as %s at (%f, %f)\n", objDef->name, instance->instanceId, instance->objectIndex, active ? "active" : "inactive", instance->x, instance->y);
         }
     }
-#else
-    (void)runner;
 #endif
 
     instance->active = active;
+
+    // The grid sync skips inactive instances. One that was inactive at its first sync (AM2R deactivates
+    // far-away solids straight away) isn't in the grid, so it has to be queued when it wakes up.
+    if (active && !instance->destroyed && arrlen(instance->collisionCells) == 0 && runner->spatialGrid != nullptr)
+        SpatialGrid_markInstanceAsDirty(runner->spatialGrid, instance);
 }
 
 static inline GMLReal Runner_getEffectiveGameSpeed(Runner* runner) {
