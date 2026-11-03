@@ -38,25 +38,24 @@ with this repository in its `workspace/am2r-port` folder and the image tagged `r
 
 ## Controls
 ### AM2R
-The buttons act as AM2R's default keyboard keys. The table is `rgBindings` in `src/backends/sdl1.c`.
+The layout follows Metroid Fusion. The buttons act as AM2R's default keyboard keys (the table is `rgBindings` in `src/backends/sdl1.c`), and on its first run `port/am2r.sh` sets the game to one-button aiming and hold-to-arm missiles.
 
 | Button | Action | Button | Action |
 |---|---|---|---|
-| D-pad | Move | L1 / L2 | Aim |
-| B | Jump | R1 | Missile |
-| Y | Fire | R2 | Walk |
-| X | Morph | Select | Select / menu OK |
-| A | Menu OK | Start | Start / menu cancel |
-| Menu | Options | Menu + Start | Quit to GarlicOS |
-| Vol+ / Vol- | Master volume, saved in `volume.txt` | | |
+| D-pad | Move | L1 | Hold to aim diagonally, with up or down |
+| A | Jump, menu OK | R1 | Hold to arm missiles |
+| B or Y | Fire, menu cancel | R2 | Aim lock |
+| X | Morph | Select | Switch weapon |
+| Start | Start | Menu | Options |
+| Menu + Start | Quit to GarlicOS | Vol+ / Vol- | Master volume, saved in `volume.txt` |
 
 ## Changes from the base fork
 ### Bug fixes
 #### AM2R
 - Deactivated instances in a persistent room were deleted when leaving it. In AM2R, floors disappeared
   after pausing.
-- Instances that were inactive when the spatial grid first synced never entered it. In AM2R, some ledges
-  couldn't be grabbed.
+- Instances that were inactive when the spatial grid first synced never entered it, and instances in a
+  restored persistent room weren't put back. In AM2R, some ledges couldn't be grabbed.
 - Collisions skipped an instance destroyed earlier in the same pass. In AM2R, missiles couldn't damage
   Metroids. This one is inferred from what the game needs, not from how the original runner behaves.
 - `--lazy-rooms` freed and reloaded the tiles of persistent rooms, undoing runtime tile changes. In AM2R,
@@ -68,6 +67,7 @@ The buttons act as AM2R's default keyboard keys. The table is `rgBindings` in `s
 - A view port offset could draw past the framebuffer. AM2R's earthquake effect crashed because of it.
 - Removed log calls that ran on every blend mode change and surface switch.
 - Added a faster path for sprites with no tint or blending.
+- Sprite rows are now tinted and blended with NEON, 8 pixels at a time.
 **RG35XX support**
 - A fixed 320x240 game window, doubled to the 640x480 screen in 16-bit colour.
 - Button input and volume keys.
