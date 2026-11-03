@@ -4,7 +4,7 @@
 
 <h1 align="center">🥧 Butterscotch 🥧</h1>
 
-# Butterscotch for the Anbernic RG35XX
+# Butterscotch for the Anbernic RG35XX (Original model).
 
 An unofficial port of [Butterscotch](https://github.com/ButterscotchRunner/Butterscotch), the
 open-source GameMaker: Studio runner, to the Anbernic RG35XX running GarlicOS.
@@ -87,6 +87,7 @@ checker. See `port/am2r-bench.sh`.
 
 Butterscotch is by MrPowerGamerBR and its contributors, and the software renderer and Miyoo Mini port come
 from cobaltgit's fork. This work is licensed under the AGPL-3.0, like the projects it's based on. See
-`LICENSE`. It was developed with substantial help from Claude, Anthropic's AI assistant.
+`LICENSE`.
+Substantial parts were written using LLMs, particularly Claude.
 
 Butterscotch has no association with the games it can run, and neither does this port.
