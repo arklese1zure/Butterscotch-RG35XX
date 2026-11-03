@@ -3924,7 +3924,8 @@ static void persistRoomState(Runner* runner, int32_t roomIndex) {
         Instance* inst = runner->instances[i];
         if (inst->persistent) {
             arrput(keptInstances, inst);
-        } else if (inst->active) {
+        } else if (!inst->destroyed) {
+            // Deactivated instances are inactive too, and have to come back with the room.
             arrput(state->instances, inst);
         } else {
             hmdel(runner->instancesById, inst->instanceId);
