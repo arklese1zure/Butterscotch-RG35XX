@@ -60,7 +60,7 @@ typedef enum { RG_BUTTON, RG_HAT, RG_AXIS } RgInputKind;
 typedef struct {
     RgInputKind kind;
     int index; // button number, hat mask or axis number
-    int32_t gmlKey; // AM2R's default keyboard binding for this control
+    int32_t gmlKey; // AM2R's default key for this control, as in its config.ini
     bool down;
 } RgInputBinding;
 
@@ -69,15 +69,15 @@ static RgInputBinding rgBindings[] = {
     { RG_HAT, SDL_HAT_DOWN, VK_DOWN, false },
     { RG_HAT, SDL_HAT_LEFT, VK_LEFT, false },
     { RG_HAT, SDL_HAT_RIGHT, VK_RIGHT, false },
-    { RG_BUTTON, 1, 'X', false },         // B: jump
-    { RG_BUTTON, 3, 'Z', false },         // Y: fire
-    { RG_BUTTON, 2, VK_TAB, false },      // X: morph
-    { RG_BUTTON, 0, 'A', false },         // A: menu OK
-    { RG_BUTTON, 5, 'D', false },         // L1: aim
-    { RG_AXIS, RG35XX_AXIS_L2, 'C', false },         // L2: aim 2
-    { RG_BUTTON, 6, VK_CONTROL, false },  // R1: missile
-    { RG_AXIS, RG35XX_AXIS_R2, VK_SPACE, false },    // R2: walk
-    { RG_BUTTON, 7, 'A', false },         // Select
+    { RG_BUTTON, 0, 'Z', false },         // A: jump, menu OK
+    { RG_BUTTON, 1, 'X', false },         // B: fire, menu cancel
+    { RG_BUTTON, 3, 'X', false },         // Y: fire
+    { RG_BUTTON, 2, VK_CONTROL, false },  // X: morph
+    { RG_BUTTON, 5, VK_SHIFT, false },    // L1: hold to aim diagonally, with up or down
+    { RG_BUTTON, 6, 'A', false },         // R1: hold to arm missiles
+    { RG_AXIS, RG35XX_AXIS_L2, 'C', false },         // L2: second aim button, unused in one-button aiming
+    { RG_AXIS, RG35XX_AXIS_R2, VK_SPACE, false },    // R2: aim lock
+    { RG_BUTTON, 7, 'S', false },         // Select: switch weapon
     { RG_BUTTON, RG35XX_BTN_START, VK_ENTER, false },
     { RG_BUTTON, RG35XX_BTN_MENU, VK_ESCAPE, false },
 };
