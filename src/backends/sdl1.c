@@ -476,12 +476,13 @@ bool platformHandleEvents(void) {
             slot->connected = true;
             slot->jid = slotIdx;
 
-            const char* name = SDL_JoystickName(slotIdx);
-            if (name != NULL) {
-                strncpy(slot->description, name, sizeof(slot->description) - 1);
-                slot->description[sizeof(slot->description) - 1] = '\0';
-            } else {
-                slot->description[0] = '\0';
+            // SDL_JoystickName reopens the device on Linux, which can block for tens of ms.
+            if (slot->description[0] == '\0') {
+                const char* name = SDL_JoystickName(slotIdx);
+                if (name != NULL) {
+                    strncpy(slot->description, name, sizeof(slot->description) - 1);
+                    slot->description[sizeof(slot->description) - 1] = '\0';
+                }
             }
 
             slot->guid[0] = '\0';
