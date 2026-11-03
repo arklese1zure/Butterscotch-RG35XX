@@ -1,9 +1,18 @@
+<div align="center">
+<img width="256" height="256" alt="Butterscotch Logo" src="https://github.com/user-attachments/assets/ef8bdd5c-d407-4b3c-a4d5-07b25e8bbc70" />
+</div>
+
+<h1 align="center">🥧 Butterscotch 🥧</h1>
+
 # Butterscotch for the Anbernic RG35XX
 
 An unofficial port of [Butterscotch](https://github.com/ButterscotchRunner/Butterscotch), the
-open-source GameMaker: Studio runner, to the Anbernic RG35XX running GarlicOS. It's based on
-[cobaltgit's Miyoo Mini fork](https://github.com/cobaltgit/Butterscotch/tree/miyoomini), which
-provides the software renderer, at commit `bf71e243`.
+open-source GameMaker: Studio runner, to the Anbernic RG35XX running GarlicOS.
+It's based on [cobaltgit's Miyoo Mini fork](https://github.com/cobaltgit/Butterscotch/tree/miyoomini), which provides the software renderer, at commit `bf71e243`.
+
+> [!NOTE]
+> **This is an unofficial fork for the Anbernic RG35XX. See [The original README](README.original.md).**
+> It includes no game files, and no AM2R files of any kind. The original Butterscotch readme follows.
 
 > [!IMPORTANT]
 > **There are no AM2R files anywhere in this repository**: no game data, no assets, no music and no
