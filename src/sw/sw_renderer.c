@@ -144,6 +144,9 @@ static void SWRenderer_beginView(Renderer* renderer, int32_t viewX, int32_t view
     swr->viewY = viewY;
     swr->viewW = viewW;
     swr->viewH = viewH;
+    // A port offset, such as AM2R's earthquake, mustn't let drawing run past the framebuffer.
+    if (portX + portW > swr->width) portW = swr->width - portX;
+    if (portY + portH > swr->height) portH = swr->height - portY;
     swr->portX = portX;
     swr->portY = portY;
     swr->portW = portW;
