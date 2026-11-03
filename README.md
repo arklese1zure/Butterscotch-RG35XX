@@ -11,13 +11,11 @@ open-source GameMaker: Studio runner, to the Anbernic RG35XX running GarlicOS.
 It's based on [cobaltgit's Miyoo Mini fork](https://github.com/cobaltgit/Butterscotch/tree/miyoomini), which provides the software renderer, at commit `bf71e243`.
 
 > [!NOTE]
-> **This is an unofficial fork for the Anbernic RG35XX. See [The original README](README.original.md).**
-> It includes no game files, and no AM2R files of any kind. The original Butterscotch readme follows.
+> **This is an unofficial fork for the Anbernic RG35XX, running GarlicOS. See [The original README](README.original.md).**
+> The fixes here have been done specifically for AM2R, and haven't been tested in other games.
 
-> [!IMPORTANT]
-> **There are no AM2R files anywhere in this repository**: no game data, no assets, no music and no
-> download links. This repository contains only the runner. If you want to test with AM2R, finding
-> your own copy of the game's files is entirely up to you.
+> [!IMPORTANT] The AM2R files are not in this repository
+> You must find and provide your own copies of the game's files.
 
 ## Status
 
