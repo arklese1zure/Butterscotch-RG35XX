@@ -30,6 +30,8 @@ with this repository in its `workspace/am2r-port` folder and the image tagged `r
 
 ## Installation
 ### AM2R
+> [!NOTE]
+> There are no AM2R files in this repository, and no links to them. Finding your own copy of the game is up to you.
 1. Copy `port/am2r.sh` to `Roms/APPS` on the SD card.
 2. Create `Roms/APPS/am2r`, and copy `build/butterscotch` into it.
 3. Copy `data.win`, the `lang` folder and the `.ogg` files from your own copy of the game into
