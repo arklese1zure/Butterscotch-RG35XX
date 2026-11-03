@@ -3,6 +3,7 @@
 #include <float.h>
 #include "text_utils.h"
 #include "sw_renderer_private.h"
+#include "sw_row_neon.h"
 
 // ==== Internal structures ====
 
@@ -363,6 +364,22 @@ static void swrDrawSpriteInternal(
             else
                 srcline = &texture->buffer[(sy + (int)(ys2 >> fp_prec)) * texture->width + sx];
             
+#ifdef SW_NEON_ROWS
+            if (dw <= SW_NEON_ROW_MAX)
+            {
+                static uintpixel_t reversedRow[SW_NEON_ROW_MAX];
+                const uintpixel_t* row = srcline + ixs;
+                if (oxs != 1)
+                {
+                    for (int x = 0, xs = ixs; x < dw; x++, xs += oxs)
+                        reversedRow[x] = srcline[xs];
+                    row = reversedRow;
+                }
+                swrBlendRowNeon(dstline, row, dw, tintColor, srcalpha, invalpha);
+                continue;
+            }
+#endif
+            
             if (plainCopy)
             {
                 for (int x = 0, xs = ixs; x < dw; x++, xs += oxs)
@@ -396,6 +413,16 @@ static void swrDrawSpriteInternal(
                 srcline = &texture->buffer[(sy + (int)(ys2 >> fp_prec)) * texture->width + sx];
             
             fixedp_t xs2 = ixs2;
+#ifdef SW_NEON_ROWS
+            if (dw <= SW_NEON_ROW_MAX)
+            {
+                static uintpixel_t scaledRow[SW_NEON_ROW_MAX];
+                for (int x = 0; x < dw; x++, xs2 += oxs2)
+                    scaledRow[x] = srcline[(int)(xs2 >> fp_prec)];
+                swrBlendRowNeon(dstline, scaledRow, dw, tintColor, srcalpha, invalpha);
+                continue;
+            }
+#endif
             for (int x = 0, xs = ixs; x < dw; x++, xs += oxs, xs2 += oxs2)
             {
                 uintpixel_t pixel = srcline[(int)(xs2 >> fp_prec)];
