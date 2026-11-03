@@ -347,6 +347,9 @@ static void swrDrawSpriteInternal(
     int srcalpha = swrCalcSrcAlpha(swr, alpha);
     int invalpha = swrCalcDstAlpha(swr, alpha);
     
+    // The most common case by far: no tint, no blending. Worth skipping the per-pixel checks for.
+    bool plainCopy = (tintColor & 0xFFFFFF) == 0xFFFFFF && invalpha < 3 && srcalpha > 253;
+    
     if (sw == dw)
     {
         fixedp_t ys2 = (fixedp_t) iys2;
@@ -359,6 +362,17 @@ static void swrDrawSpriteInternal(
                 srcline = &texture->buffer[(sy + ys) * texture->width + sx];
             else
                 srcline = &texture->buffer[(sy + (int)(ys2 >> fp_prec)) * texture->width + sx];
+            
+            if (plainCopy)
+            {
+                for (int x = 0, xs = ixs; x < dw; x++, xs += oxs)
+                {
+                    uintpixel_t pixel = srcline[xs];
+                    if (opaque(pixel))
+                        dstline[x] = pixel;
+                }
+                continue;
+            }
             
             for (int x = 0, xs = ixs; x < dw; x++, xs += oxs)
             {
