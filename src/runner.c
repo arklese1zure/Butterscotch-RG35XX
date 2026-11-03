@@ -4003,7 +4003,9 @@ void Runner_handlePendingRoomChange(Runner* runner) {
         initRoom(runner, newRoomIndex);
 
         // Free the outgoing room's payload after Cleanup and persistent-instance layer transfer.
-        if (runner->dataWin->lazyLoadRooms && !oldRoom->eagerlyLoaded && newRoomIndex != oldRoomIndex) {
+        // A persistent room keeps it: its tile list holds runtime tile_add/tile_layer_delete changes, and
+        // restoring the room doesn't rerun the creation code that made them.
+        if (runner->dataWin->lazyLoadRooms && !oldRoom->eagerlyLoaded && !oldRoom->persistent && newRoomIndex != oldRoomIndex) {
             DataWin_freeRoomPayload(oldRoom);
         }
 
