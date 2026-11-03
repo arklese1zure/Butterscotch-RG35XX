@@ -14466,6 +14466,35 @@ static RValue builtin_position_meeting(VMContext* ctx, RValue* args, int32_t arg
         }
     }
 
+    // Test hook: compare the grid's answer with checking every instance directly.
+    {
+        static int checkEnabled = -1;
+        static int mismatchesLogged = 0;
+        if (checkEnabled < 0) checkEnabled = getenv("AM2R_CHECK_GRID") != nullptr;
+        if (checkEnabled && mismatchesLogged < 50) {
+            Instance* expected = nullptr;
+            int32_t snapBase = Runner_pushInstancesForTarget(runner, target);
+            int32_t snapEnd = (int32_t) arrlen(runner->instanceSnapshots);
+            for (int32_t i = snapBase; snapEnd > i && expected == nullptr; i++) {
+                Instance* inst = runner->instanceSnapshots[i];
+                if (!inst->active || !Collision_pointInsideInstanceBox(runner, inst, px, py)) continue;
+                Sprite* spr = Collision_getSprite(ctx->dataWin, inst);
+                if (Collision_hasFrameMasks(spr) && !Collision_pointInInstance(spr, inst, px, py)) continue;
+                expected = inst;
+            }
+            Runner_popInstanceSnapshot(runner, snapBase);
+            if ((expected != nullptr) != found) {
+                mismatchesLogged++;
+                logWarn("GRID MISMATCH room=%s point=%.1f,%.1f grid=%d direct=%s id=%d dirty=%d cells=%d\n",
+                        runner->currentRoom->name, px, py, found,
+                        expected != nullptr ? ctx->dataWin->objt.objects[expected->objectIndex].name : "none",
+                        expected != nullptr ? (int) expected->instanceId : -1,
+                        expected != nullptr ? expected->spatialGridDirty : 0,
+                        expected != nullptr ? (int) arrlen(expected->collisionCells) : 0);
+            }
+        }
+    }
+
     return RValue_makeBool(found);
 }
 

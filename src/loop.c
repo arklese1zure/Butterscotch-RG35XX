@@ -405,6 +405,18 @@ static void dumpAllSurfaces(GLRenderer* gl, const char* filenamePattern, int fra
 // ===[ KEYBOARD INPUT ]===
 
 InputRecording* globalInputRecording = nullptr;
+#ifdef TARGET_RG35XX
+extern volatile int rg35xxProfileActive;
+void rg35xxInstallCrashHandler(void);
+#endif
+static int32_t spawnObjectFrame = 0;
+static double lastStepMs = 0.0;
+static double lastPresentMs = 0.0;
+#ifdef ENABLE_SW_RENDERER
+extern int swrTraceSurfaces;
+#else
+static int swrTraceSurfaces = 0;
+#endif
 
 #ifndef __wasi__
 
@@ -961,7 +973,7 @@ int loop(CommandLineArgs args, const char *argv0) {
 
         // Initialize the audio system
         AudioSystem* audioSystem = nullptr;
-        if (args.headless) {
+        if (args.headless && getenv("AM2R_HEADLESS_AUDIO") == nullptr) {
             audioSystem = (AudioSystem*) NoopAudioSystem_create();
         } else {
 #if defined(USE_OPENAL)
@@ -1110,6 +1122,84 @@ int loop(CommandLineArgs args, const char *argv0) {
                 InputRecording_processFrame(globalInputRecording, runner->keyboard, inputFrameCount++);
             }
 
+#ifdef TARGET_RG35XX
+            // Again now that SDL is up, in case its own signal handling replaced ours.
+            if (runner->frameCount == 1) rg35xxInstallCrashHandler();
+            {
+                static const char* profileRoom = nullptr;
+                static bool profileRoomRead = false;
+                if (!profileRoomRead) {
+                    profileRoom = getenv("AM2R_PROFILE_ROOM");
+                    profileRoomRead = true;
+                }
+                if (profileRoom != nullptr) rg35xxProfileActive = strcmp(runner->currentRoom->name, profileRoom) == 0;
+            }
+#endif
+
+            // Test hook: what's in each room a few frames after entering it.
+            {
+                static int32_t tracedRoom = -1;
+                static int32_t traceCountdown = 0;
+                if (getenv("AM2R_TRACE") != nullptr) {
+                    if (runner->currentRoomIndex != tracedRoom) {
+                        tracedRoom = runner->currentRoomIndex;
+                        traceCountdown = 5;
+                    } else if (traceCountdown > 0 && --traceCountdown == 0) {
+                        int32_t objectCount = (int32_t) runner->dataWin->objt.count;
+                        int32_t* activeCount = (int32_t*) safeCalloc(objectCount, sizeof(int32_t));
+                        int32_t* inactiveCount = (int32_t*) safeCalloc(objectCount, sizeof(int32_t));
+                        repeat(arrlen(runner->instances), i) {
+                            Instance* inst = runner->instances[i];
+                            if (inst == nullptr || inst->destroyed) continue;
+                            if (inst->active) activeCount[inst->objectIndex]++;
+                            else inactiveCount[inst->objectIndex]++;
+                        }
+                        logInfo("TRACE room %s\n", runner->currentRoom->name);
+                        repeat(objectCount, i) {
+                            if (activeCount[i] != 0 || inactiveCount[i] != 0)
+                                logInfo("TRACE   %s active=%d inactive=%d\n", runner->dataWin->objt.objects[i].name, activeCount[i], inactiveCount[i]);
+                        }
+                        free(activeCount);
+                        free(inactiveCount);
+                        swrTraceSurfaces = 2;
+                    } else if (swrTraceSurfaces > 0) {
+                        swrTraceSurfaces--;
+                    }
+                }
+            }
+
+            // Test hook: hold the view port offset that the earthquake applies.
+            if (runner->frameCount > 400 && getenv("AM2R_TEST_SHAKE") != nullptr) {
+                runner->views[0].portX = 4;
+                runner->views[0].portY = 4;
+            }
+
+            // Test hook: create an object shortly after arriving in the room, for testing rare events.
+            if (spawnObjectFrame != 0 && runner->frameCount == spawnObjectFrame) {
+                const char* spawnName = getenv("AM2R_SPAWN");
+                DataWin* dw = runner->dataWin;
+                repeat(dw->objt.count, i) {
+                    if (strcmp(dw->objt.objects[i].name, spawnName) == 0) {
+                        Runner_createInstance(runner, 0, 0, (int32_t) i);
+                        logInfo("Spawned %s\n", spawnName);
+                    }
+                }
+            }
+
+            // Test hooks: reach a game room without the menus, or check the crash reporter.
+            if (runner->frameCount == 300) {
+                if (getenv("AM2R_CRASH_TEST") != nullptr) *(volatile int*) 0 = 1;
+                const char* spawnName = getenv("AM2R_SPAWN");
+                if (spawnName != nullptr) spawnObjectFrame = runner->frameCount + 100;
+                const char* roomName = getenv("AM2R_GOTO_ROOM");
+                if (roomName != nullptr) {
+                    DataWin* dw = runner->dataWin;
+                    repeat(dw->room.count, i) {
+                        if (strcmp(dw->room.rooms[i].name, roomName) == 0) runner->pendingRoom = (int32_t) i;
+                    }
+                }
+            }
+
             // Go to next room
             if (RunnerKeyboard_checkPressed(runner->keyboard, VK_PAGEUP)) {
                 DataWin* dw = runner->dataWin;
@@ -1229,7 +1319,11 @@ int loop(CommandLineArgs args, const char *argv0) {
 
             // Run one game step (Begin Step, Keyboard, Alarms, Step, End Step, room transitions)
             if (shouldStep) {
-                Runner_step(runner);
+                {
+                    uint64_t stepStartTime = args.traceFrames ? nowNanos() : 0;
+                    Runner_step(runner);
+                    if (args.traceFrames) lastStepMs = (int64_t)(nowNanos() - stepStartTime) / 1000000.0;
+                }
             }
 
             if (freeCamActive) {
@@ -1444,13 +1538,19 @@ int loop(CommandLineArgs args, const char *argv0) {
 
             if (shouldStep && args.traceFrames) {
                 double frameElapsedMs = (int64_t)(nowNanos() - frameStartTime) / 1000000.0;
-                logInfo("Frame %d (End, %.2f ms)\n", runner->frameCount, frameElapsedMs);
+                static uint64_t previousFrameStart = 0;
+                double loopMs = previousFrameStart != 0 ? (int64_t)(frameStartTime - previousFrameStart) / 1000000.0 : 0.0;
+                previousFrameStart = frameStartTime;
+                logInfo("Frame %d (End, %.2f ms, previous loop %.2f ms, step %.2f, previous present %.2f)\n", runner->frameCount, frameElapsedMs, loopMs, lastStepMs, lastPresentMs);
             }
 
             // Only present a new frame when we actually rendered one. This includes the first paused frame so the
             // pause overlay can be presented once, and all later paused frames stay frozen without re-swapping.
-            if (runner->pendingRoom == -1 && shouldRender)
+            if (runner->pendingRoom == -1 && shouldRender) {
+                uint64_t presentStartTime = args.traceFrames ? nowNanos() : 0;
                 platformSwapBuffers();
+                if (args.traceFrames) lastPresentMs = (int64_t)(nowNanos() - presentStartTime) / 1000000.0;
+            }
             if (shouldStep) {
                 Runner_handlePendingRoomChange(runner);
             }

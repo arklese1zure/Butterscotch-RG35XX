@@ -674,6 +674,9 @@ static void SWRenderer_gpuSetFog(Renderer* renderer, bool enable, uint32_t color
     (void)renderer; (void)enable; (void)color;
 }
 
+// Test hook: when non-zero, surface activity is written to the log.
+int swrTraceSurfaces = 0;
+
 static int32_t SWRenderer_createSurface(Renderer* renderer, int32_t width, int32_t height)
 {
     SWRenderer* swr = (SWRenderer*) renderer;
@@ -693,6 +696,7 @@ static int32_t SWRenderer_createSurface(Renderer* renderer, int32_t width, int32
     }
     
     swr->surfaces[slot] = swrCreateSurface(width, height);
+    if (getenv("AM2R_TRACE") != nullptr) logInfo("TRACE surface_create id=%d %dx%d\n", slot, width, height);
     return slot;
 }
 
@@ -740,6 +744,11 @@ static void SWRenderer_drawSurface(Renderer* renderer, int32_t surfaceID,
                                    uint32_t color, float alpha)
 {
     SWRenderer* swr = (SWRenderer*) renderer;
+    if (swrTraceSurfaces > 0) {
+        logInfo("TRACE draw_surface id=%d src=%d,%d %dx%d at %.0f,%.0f scale=%.2f,%.2f color=%06x alpha=%.2f blend=%d target=%d\n",
+                surfaceID, srcLeft, srcTop, srcWidth, srcHeight, x, y, xscale, yscale, color, alpha, swr->blendMode,
+                swr->drawingToSurface ? swr->currentSurfaceIndex : -1);
+    }
     SWTexture* surface, localSurface;
     if (surfaceID == APPLICATION_SURFACE_ID) {
         localSurface.buffer = swr->drawingToSurface ? swr->mainFb : swr->fb;
@@ -828,6 +837,7 @@ static void SWRenderer_surfaceFree(Renderer* renderer, int32_t surfaceID)
         return;
     }
     
+    if (getenv("AM2R_TRACE") != nullptr) logInfo("TRACE surface_free id=%d\n", surfaceID);
     swrFreeSurface(swr->surfaces[surfaceID]);
     swr->surfaces[surfaceID] = NULL;
 }
