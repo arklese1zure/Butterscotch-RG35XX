@@ -13247,8 +13247,14 @@ static RValue builtin_color_get_value(MAYBE_UNUSED VMContext* ctx, RValue* args,
 }
 
 // Display stubs
+#ifdef TARGET_RG35XX
+// Matches the fixed 320x240 window, so AM2R draws its screen at 1x with no offset.
+STUB_RETURN_VALUE(display_get_width, 320.0)
+STUB_RETURN_VALUE(display_get_height, 240.0)
+#else
 STUB_RETURN_VALUE(display_get_width, 640.0)
 STUB_RETURN_VALUE(display_get_height, 480.0)
+#endif
 
 static int32_t resolveGuiWidth(Runner* runner) {
     if (runner->guiWidth > 0) return runner->guiWidth;

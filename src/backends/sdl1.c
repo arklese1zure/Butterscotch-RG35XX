@@ -40,6 +40,49 @@ typedef struct {
 
 static GamepadMapping joystickMappings[MAX_GAMEPADS];
 
+#ifdef TARGET_RG35XX
+// The game always sees a 320x240 window; platformSwapBuffers doubles it to the 640x480 screen.
+#define RG35XX_GAME_W 320
+#define RG35XX_GAME_H 240
+#define RG35XX_SCREEN_W 640
+#define RG35XX_SCREEN_H 480
+#define RG35XX_BTN_START 8
+#define RG35XX_BTN_MENU 9
+#define RG35XX_BTN_VOLUME_UP 10
+#define RG35XX_BTN_VOLUME_DOWN 11
+#define RG35XX_VOLUME_STEPS 10
+#define RG35XX_VOLUME_FILE "volume.txt"
+#define RG35XX_AXIS_L2 2
+#define RG35XX_AXIS_R2 5
+
+typedef enum { RG_BUTTON, RG_HAT, RG_AXIS } RgInputKind;
+
+typedef struct {
+    RgInputKind kind;
+    int index; // button number, hat mask or axis number
+    int32_t gmlKey; // AM2R's default keyboard binding for this control
+    bool down;
+} RgInputBinding;
+
+static RgInputBinding rgBindings[] = {
+    { RG_HAT, SDL_HAT_UP, VK_UP, false },
+    { RG_HAT, SDL_HAT_DOWN, VK_DOWN, false },
+    { RG_HAT, SDL_HAT_LEFT, VK_LEFT, false },
+    { RG_HAT, SDL_HAT_RIGHT, VK_RIGHT, false },
+    { RG_BUTTON, 1, 'X', false },         // B: jump
+    { RG_BUTTON, 3, 'Z', false },         // Y: fire
+    { RG_BUTTON, 2, VK_TAB, false },      // X: morph
+    { RG_BUTTON, 0, 'A', false },         // A: menu OK
+    { RG_BUTTON, 5, 'D', false },         // L1: aim
+    { RG_AXIS, RG35XX_AXIS_L2, 'C', false },         // L2: aim 2
+    { RG_BUTTON, 6, VK_CONTROL, false },  // R1: missile
+    { RG_AXIS, RG35XX_AXIS_R2, VK_SPACE, false },    // R2: walk
+    { RG_BUTTON, 7, 'A', false },         // Select
+    { RG_BUTTON, RG35XX_BTN_START, VK_ENTER, false },
+    { RG_BUTTON, RG35XX_BTN_MENU, VK_ESCAPE, false },
+};
+#endif
+
 static void parseMappingField(GamepadMapping* mapping, const char* key, const char* val) {
     int gml_btn = -1;
     int gml_axis = -1;
@@ -219,6 +262,10 @@ bool platformGetScaledWindowSize(int32_t* outW, int32_t* outH) {
 }
 
 void platformSetWindowSize(int32_t width, int32_t height) {
+#ifdef TARGET_RG35XX
+    (void) width; (void) height;
+    return;
+#endif
     if (width <= 0 || height <= 0) return;
     fbWidth = width;
     fbHeight = height;
@@ -264,9 +311,26 @@ bool platformInit(int32_t reqW, int32_t reqH, const char *title, bool headless) 
     }
     loadGamepadMappings();
 
+#ifdef TARGET_RG35XX
+    reqW = RG35XX_GAME_W;
+    reqH = RG35XX_GAME_H;
+#endif
     fbWidth = reqW;
     fbHeight = reqH;
     if(!headless) {
+#ifdef TARGET_RG35XX
+#ifndef SDL_TRIPLEBUF
+#define SDL_TRIPLEBUF 0x40000100 // GarlicOS's SDL accepts this, but it isn't in the 1.2 headers
+#endif
+        // Test hook: with double buffering, missing one screen refresh drops straight to 30 fps.
+        scr = SDL_SetVideoMode(RG35XX_SCREEN_W, RG35XX_SCREEN_H, 16,
+                               SDL_HWSURFACE | (getenv("AM2R_TRIPLEBUF") != NULL ? SDL_TRIPLEBUF : SDL_DOUBLEBUF));
+        if (!scr || scr->format->BytesPerPixel != 2) {
+            logError("Fatal: Could not set the 16-bit video mode: %s\n", SDL_GetError());
+            return false;
+        }
+        SDL_ShowCursor(SDL_DISABLE);
+#else
         scr = SDL_SetVideoMode(fbWidth, fbHeight, 0, (gfx == SOFTWARE ? 0 : SDL_OPENGL) | SDL_RESIZABLE);
         if (!scr && gfx == SOFTWARE) {
             SDL_Rect** modes = SDL_ListModes(NULL, SDL_FULLSCREEN);
@@ -282,6 +346,7 @@ bool platformInit(int32_t reqW, int32_t reqH, const char *title, bool headless) 
             logError("Fatal: Could not set any video mode: %s\n", SDL_GetError());
             return false;
         }
+#endif
     }
 
     SDL_WM_SetCaption(title, NULL);
@@ -315,6 +380,45 @@ void platformInitFunctions(Runner *runner) {
 
 #ifdef ENABLE_SW_RENDERER
 
+#ifdef TARGET_RG35XX
+
+static const uint32_t* nextFbPixels = NULL;
+
+void platformSetNextFramebuffer(uint32_t* framebuffer, int width, int height) {
+    (void) width; (void) height;
+    nextFbPixels = framebuffer;
+}
+
+static void rg35xxPresent(void) {
+    if (!nextFbPixels) return;
+
+    const SDL_PixelFormat* f = scr->format;
+    // One doubled row at a time, written twice: reading back from the framebuffer is slow.
+    static uint32_t line[RG35XX_GAME_W];
+    const uint32_t* src = nextFbPixels;
+
+    if (SDL_MUSTLOCK(scr)) SDL_LockSurface(scr);
+    uint8_t* dst = (uint8_t*) scr->pixels;
+    for (int y = 0; y < RG35XX_GAME_H; y++) {
+        for (int x = 0; x < RG35XX_GAME_W; x++) {
+            uint32_t c = src[x];
+            uint32_t p = (((c >> 16) & 0xff) >> f->Rloss) << f->Rshift
+                       | (((c >> 8) & 0xff) >> f->Gloss) << f->Gshift
+                       | ((c & 0xff) >> f->Bloss) << f->Bshift;
+            line[x] = p | (p << 16);
+        }
+        memcpy(dst, line, sizeof(line));
+        dst += scr->pitch;
+        memcpy(dst, line, sizeof(line));
+        dst += scr->pitch;
+        src += RG35XX_GAME_W;
+    }
+    if (SDL_MUSTLOCK(scr)) SDL_UnlockSurface(scr);
+    SDL_Flip(scr);
+}
+
+#else
+
 static SDL_Surface* nextFb = NULL;
 
 void platformSetNextFramebuffer(uint32_t* framebuffer, int width, int height) {
@@ -338,13 +442,19 @@ void platformSetNextFramebuffer(uint32_t* framebuffer, int width, int height) {
 
 #endif
 
+#endif
+
 void platformSwapBuffers(void) {
 #ifdef ENABLE_SW_RENDERER
     if(gfx == SOFTWARE) {
         if (!scr)
             return;
+#ifdef TARGET_RG35XX
+        rg35xxPresent();
+#else
         SDL_BlitSurface(nextFb, NULL, scr, NULL);
         SDL_Flip(scr);
+#endif
     }
 #endif
 #if defined(ENABLE_LEGACY_GL) || defined(ENABLE_MODERN_GL)
@@ -457,8 +567,83 @@ static int32_t SDLMouseButtonToGml(int sdlButton) {
     }
 }
 
+#ifdef TARGET_RG35XX
+static int rgVolumeLevel = RG35XX_VOLUME_STEPS;
+
+// The volume keys set the master gain, on top of the game's own music and sound settings.
+static void rg35xxApplyVolume(void) {
+    if (g_runner->audioSystem == NULL) return;
+    // Squared, because ears hear loudness roughly logarithmically.
+    float gain = (float) (rgVolumeLevel * rgVolumeLevel) / (RG35XX_VOLUME_STEPS * RG35XX_VOLUME_STEPS);
+    g_runner->audioSystem->vtable->setMasterGain(g_runner->audioSystem, gain);
+}
+
+static void rg35xxLoadVolume(void) {
+    FILE* f = fopen(RG35XX_VOLUME_FILE, "r");
+    if (f == NULL) return;
+    int level;
+    if (fscanf(f, "%d", &level) == 1 && level >= 0 && level <= RG35XX_VOLUME_STEPS) rgVolumeLevel = level;
+    fclose(f);
+}
+
+static void rg35xxStepVolume(int delta) {
+    int level = rgVolumeLevel + delta;
+    if (level < 0 || level > RG35XX_VOLUME_STEPS) return;
+    rgVolumeLevel = level;
+    rg35xxApplyVolume();
+    FILE* f = fopen(RG35XX_VOLUME_FILE, "w");
+    if (f == NULL) return;
+    fprintf(f, "%d\n", level);
+    fclose(f);
+}
+
+// Feeds the buttons in as AM2R's default keys. Returns true on Menu + Start, which quits.
+static bool rg35xxPollInput(void) {
+    SDL_Joystick* joy = openJoysticks[0];
+    if (joy == NULL) return false;
+
+    static bool volumeLoaded = false;
+    if (!volumeLoaded && g_runner->audioSystem != NULL) {
+        volumeLoaded = true;
+        rg35xxLoadVolume();
+        rg35xxApplyVolume();
+    }
+
+    static bool volumeUpDown = false;
+    static bool volumeDownDown = false;
+    bool volumeUp = SDL_JoystickGetButton(joy, RG35XX_BTN_VOLUME_UP) != 0;
+    bool volumeDown = SDL_JoystickGetButton(joy, RG35XX_BTN_VOLUME_DOWN) != 0;
+    if (volumeUp && !volumeUpDown) rg35xxStepVolume(1);
+    if (volumeDown && !volumeDownDown) rg35xxStepVolume(-1);
+    volumeUpDown = volumeUp;
+    volumeDownDown = volumeDown;
+
+    if (SDL_JoystickGetButton(joy, RG35XX_BTN_MENU) && SDL_JoystickGetButton(joy, RG35XX_BTN_START))
+        return true;
+
+    Uint8 hat = SDL_JoystickGetHat(joy, 0);
+    for (size_t i = 0; i < sizeof(rgBindings) / sizeof(rgBindings[0]); i++) {
+        RgInputBinding* b = &rgBindings[i];
+        bool down = false;
+        switch (b->kind) {
+            case RG_BUTTON: down = SDL_JoystickGetButton(joy, b->index) != 0; break;
+            case RG_HAT: down = (hat & b->index) != 0; break;
+            case RG_AXIS: down = SDL_JoystickGetAxis(joy, b->index) > 0; break;
+        }
+        if (down == b->down) continue;
+        b->down = down;
+        if (down) RunnerKeyboard_onKeyDown(g_runner->keyboard, b->gmlKey);
+        else RunnerKeyboard_onKeyUp(g_runner->keyboard, b->gmlKey);
+    }
+    return false;
+}
+#endif
+
 bool platformHandleEvents(void) {
     SDL_JoystickUpdate();
+#ifdef TARGET_RG35XX
+    if (rg35xxPollInput()) return true;
+#endif
 
     g_runner->gamepads->connectedCount = 0;
     for (int slotIdx = 0; slotIdx < MAX_GAMEPADS; slotIdx++) {
