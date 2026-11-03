@@ -574,7 +574,6 @@ static void SWRenderer_gpuSetBlendMode(Renderer* renderer, int32_t mode)
     
     //if (mode != bm_normal && mode != bm_add && mode != bm_subtract)
     {
-        logWarn("swr: unsupported blend mode: %d\n", mode);
     }
 }
 
