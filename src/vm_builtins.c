@@ -498,6 +498,14 @@ int16_t VMBuiltins_resolveBuiltinVarId(const char* name) {
     return hit == nullptr ? BUILTIN_VAR_UNKNOWN : hit->id;
 }
 
+// Resolves a name as this game's runner would. GM:S 2 added the "layer" instance variable, so in older
+// games it's an ordinary variable: AM2R's oFadeTiles keeps the tile depth to fade in one.
+int16_t VMBuiltins_resolveBuiltinVarIdForGame(DataWin* dataWin, const char* name) {
+    int16_t id = VMBuiltins_resolveBuiltinVarId(name);
+    if (id == BUILTIN_VAR_LAYER && !DataWin_isVersionAtLeast(dataWin, 2, 0, 0, 0)) return BUILTIN_VAR_UNKNOWN;
+    return id;
+}
+
 void VMBuiltins_checkIfBuiltinVarTableIsSorted(void) {
     size_t count = sizeof(BUILTIN_VAR_TABLE) / sizeof(BUILTIN_VAR_TABLE[0]);
     for (size_t i = 1; count > i; i++) {
@@ -4275,7 +4283,7 @@ static void variableInstanceSetOn(VMContext* ctx, Instance* target, const char* 
         VM_structSet(ctx, target, name, val, -1);
         return;
     }
-    int16_t builtinId = VMBuiltins_resolveBuiltinVarId(name);
+    int16_t builtinId = VMBuiltins_resolveBuiltinVarIdForGame(ctx->dataWin, name);
     if (builtinId != BUILTIN_VAR_UNKNOWN) {
         VMBuiltins_setVariable(ctx, target, builtinId, name, val, -1);
         return;
@@ -4295,7 +4303,7 @@ static void variableInstanceSetOn(VMContext* ctx, Instance* target, const char* 
 static RValue variableInstanceGetOn(VMContext* ctx, Instance* target, const char* name, MAYBE_UNUSED const char* originBuiltin) {
     if (target->objectIndex == STRUCT_OBJECT_INDEX)
         return RValue_makeIndependent(VM_structGetVariableByVarName(ctx, target, name, -1));
-    int16_t builtinId = VMBuiltins_resolveBuiltinVarId(name);
+    int16_t builtinId = VMBuiltins_resolveBuiltinVarIdForGame(ctx->dataWin, name);
     if (builtinId != BUILTIN_VAR_UNKNOWN) {
         RValue val = VMBuiltins_getVariable(ctx, target, builtinId, name, -1);
 #ifdef ENABLE_VM_TRACING
@@ -4329,7 +4337,7 @@ static bool variableInstanceExistsOn(VMContext* ctx, Instance* target, const cha
         ptrdiff_t slot = shgeti(ctx->varNameMap, (char*) name);
         return slot >= 0 && IntRValueHashMap_contains(&target->selfVars, ctx->varNameMap[slot].value);
     }
-    if (VMBuiltins_resolveBuiltinVarId(name) != BUILTIN_VAR_UNKNOWN) return true;
+    if (VMBuiltins_resolveBuiltinVarIdForGame(ctx->dataWin, name) != BUILTIN_VAR_UNKNOWN) return true;
     ptrdiff_t slot = shgeti(ctx->varNameMap, (char*) name);
     if (0 > slot) return false;
     return IntRValueHashMap_contains(&target->selfVars, ctx->varNameMap[slot].value);

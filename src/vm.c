@@ -3558,7 +3558,7 @@ VMContext* VM_create(DataWin* dataWin) {
             var->builtinVarId = VMBuiltins_resolveBuiltinVarId(var->name);
         } else if (IS_WAD14_OR_BELOW(ctx)) {
             // BC13/14 has no -6 sentinel in the file. Detect builtins by name and switch the VARI entry to use the BC16 sentinel so downstream dispatch paths treat it as a builtin.
-            int16_t builtinId = VMBuiltins_resolveBuiltinVarId(var->name);
+            int16_t builtinId = VMBuiltins_resolveBuiltinVarIdForGame(dataWin, var->name);
             if (builtinId != BUILTIN_VAR_UNKNOWN) {
                 var->varID = -6;
                 var->builtinVarId = builtinId;
