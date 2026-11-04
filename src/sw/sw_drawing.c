@@ -385,17 +385,17 @@ static void swrDrawSpriteInternal(
                 for (int x = 0, xs = ixs; x < dw; x++, xs += oxs)
                 {
                     uintpixel_t pixel = srcline[xs];
-                    if (opaque(pixel))
+                    if (solid(pixel))
                         dstline[x] = pixel;
+                    else
+                        swrBlendTexel(&dstline[x], pixel, tintColor, srcalpha, invalpha);
                 }
                 continue;
             }
             
             for (int x = 0, xs = ixs; x < dw; x++, xs += oxs)
             {
-                uintpixel_t pixel = srcline[xs];
-                if (opaque(pixel))
-                    alphaBlend(&dstline[x], tint(tintColor, pixel), srcalpha, invalpha);
+                swrBlendTexel(&dstline[x], srcline[xs], tintColor, srcalpha, invalpha);
             }
         }
     }
@@ -425,9 +425,7 @@ static void swrDrawSpriteInternal(
 #endif
             for (int x = 0, xs = ixs; x < dw; x++, xs += oxs, xs2 += oxs2)
             {
-                uintpixel_t pixel = srcline[(int)(xs2 >> fp_prec)];
-                if (opaque(pixel))
-                    alphaBlend(&dstline[x], tint(tintColor, pixel), srcalpha, invalpha);
+                swrBlendTexel(&dstline[x], srcline[(int)(xs2 >> fp_prec)], tintColor, srcalpha, invalpha);
             }
         }
     }
@@ -542,10 +540,7 @@ static void swrDrawSpriteRotatedInternal(
             tx += sx;
             ty += sy;
             
-            uintpixel_t src = texture->buffer[ty * texture->width + tx];
-            
-            if (opaque(src))
-                alphaBlend(&dstline[cx], tint(tintColor, src), srcalpha, invalpha);
+            swrBlendTexel(&dstline[cx], texture->buffer[ty * texture->width + tx], tintColor, srcalpha, invalpha);
         }
     }
 }

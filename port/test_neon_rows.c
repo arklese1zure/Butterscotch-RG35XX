@@ -17,7 +17,10 @@ int main(void)
         for (int i = 0; i < ROW; i++)
         {
             src[i] = ((uint32_t) rand() << 16) ^ (uint32_t) rand();
-            if (rand() % 4 == 0) src[i] &= 0x00FFFFFF;
+            // A mix of transparent, solid and partly transparent pixels, or groups of only the first two.
+            int kind = rand() % 4;
+            if (kind == 0) src[i] &= 0x00FFFFFF;
+            else if (kind == 1 || (round & 1)) src[i] |= 0xFF000000;
             a[i] = b[i] = ((uint32_t) rand() << 16) ^ (uint32_t) rand();
         }
         uintpixel_t tintColor = (rand() % 2) ? 0xFFFFFFFF : (((uint32_t) rand() << 16) ^ (uint32_t) rand());
@@ -27,8 +30,7 @@ int main(void)
         swrBlendRowNeon(a, src, count, tintColor, al[0], al[1]);
         for (int i = 0; i < count; i++)
         {
-            if (opaque(src[i]))
-                alphaBlend(&b[i], tint(tintColor, src[i]), al[0], al[1]);
+            swrBlendTexel(&b[i], src[i], tintColor, al[0], al[1]);
         }
         for (int i = 0; i < ROW; i++)
         {

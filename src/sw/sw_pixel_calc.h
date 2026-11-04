@@ -4,16 +4,24 @@
 #include "defines.h"
 #include "pixel_convert.h"
 
-// Check if a pixel is opaque.
-//
-// Later, this should be changed to perform full alpha-blending
-// (at least in 32-bit pixel mode)
+// Check if a pixel has anything to draw. In 32-bit mode it can still be partly transparent:
+// swrBlendTexel handles that.
 FORCE_INLINE bool opaque(uintpixel_t color)
 {
 #if PIXEL_SIZE == 8
     return (color != PXL_TRANSPARENT);
 #else
     return (color & TRANSPARENT_MASK) != 0;
+#endif
+}
+
+// Check if a pixel covers what's under it completely.
+FORCE_INLINE bool solid(uintpixel_t color)
+{
+#if PIXEL_SIZE == 32
+    return (color >> 24) == 0xFF;
+#else
+    return opaque(color);
 #endif
 }
 
@@ -150,6 +158,40 @@ FORCE_INLINE void alphaBlend(uintpixel_t* dcolor, uintpixel_t scolor, int srcalp
 FORCE_INLINE int swrIntAlpha(float alphaf)
 {
     return (int)(alphaf * 256);
+}
+
+// Combines a draw's alpha (magnitude 0 to 256) with a texture pixel's own alpha (0 to 255).
+FORCE_INLINE int swrTexelAlpha(int drawAlpha, int texelAlpha)
+{
+    if (drawAlpha == 256)
+        return texelAlpha + (texelAlpha >> 7);
+    int x = drawAlpha * texelAlpha;
+    return (x + (x >> 8) + 1) >> 8;
+}
+
+// Draws one texture pixel, tinted and blended, taking its own alpha into account.
+FORCE_INLINE void swrBlendTexel(uintpixel_t* dcolor, uintpixel_t pixel, uintpixel_t tintColor, int srcalpha, int dstalpha)
+{
+    if (!opaque(pixel))
+        return;
+#if PIXEL_SIZE == 32
+    if (UNLIKELY(!solid(pixel)))
+    {
+        // Normal blending replaces what's under the pixel in proportion. Add and subtract keep all of it.
+        bool normal = srcalpha + dstalpha == 256;
+        int texel = swrTexelAlpha(srcalpha < 0 ? -srcalpha : srcalpha, (int) (pixel >> 24));
+        Pixel32ARGB dc;
+        dc.l = *dcolor;
+        int coverage = dc.p.a * (256 - texel) >> 8;
+        alphaBlend(dcolor, tint(tintColor, pixel), srcalpha < 0 ? -texel : texel, normal ? 256 - texel : dstalpha);
+        coverage += texel;
+        dc.l = *dcolor;
+        dc.p.a = coverage > 255 ? 255 : coverage;
+        *dcolor = dc.l;
+        return;
+    }
+#endif
+    alphaBlend(dcolor, tint(tintColor, pixel), srcalpha, dstalpha);
 }
 
 // Calculates the source alpha for a pixel based on the current blend mode.
