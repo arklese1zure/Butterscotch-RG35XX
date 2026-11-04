@@ -7,7 +7,7 @@ mkdir -p save
 [ -f save/config.ini ] || printf '[Control]\nAimStyle="0"\nMissileStyle="0"\n' > save/config.ini
 [ -f log.txt ] && mv log.txt log-prev.txt
 date > log.txt
-AM2R_TRIPLEBUF=1 AM2R_CHECK_GRID=1 AM2R_PROFILE_ROOM=rm_a0h04d ./butterscotch --trace-frames --load-type map-file --lazy-textures --lazy-rooms --lazy-audio \
+AM2R_TRIPLEBUF=1 AM2R_PROFILE_ROOM=rm_a0h04d ./butterscotch --trace-frames --load-type map-file --lazy-textures --lazy-rooms --lazy-audio \
     --save-folder ./save data.win >> log.txt 2>&1
 echo "exit=$?" >> log.txt
 date >> log.txt
