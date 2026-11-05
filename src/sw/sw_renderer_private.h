@@ -15,7 +15,6 @@
 #endif
 
 // Configurable Properties
-#define TEXTURE_LRU_LENGTH 64
 #define SURFACE_MAX_COUNT 64
 // (NOTE: See PIXEL_SIZE in defines.h)
 
@@ -66,9 +65,10 @@ typedef struct
     
     SWTexture** textures;
     SWSurface** surfaces;
-    uint32_t* textureIndexLRU;
-    uint32_t textureIndexLRUHead;
-    uint32_t textureIndexLRUTail;
+    uint32_t* textureLastUsedFrame; // indexed by page, when each was last drawn from
+    uint32_t textureFrame;
+    size_t textureBytesLoaded; // TXTR pages only
+    size_t textureBudgetBytes; // evict pages to stay under this. 0 means no limit
     size_t textureCount;
     size_t surfaceCount;
     size_t totalTextureCount;

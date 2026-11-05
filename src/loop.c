@@ -1186,6 +1186,20 @@ int loop(CommandLineArgs args, const char *argv0) {
                 }
             }
 
+            // Test hook: visit every room in turn, staying in each for this many frames.
+            {
+                static int32_t tourFrames = -1;
+                if (tourFrames == -1) {
+                    const char* tour = getenv("AM2R_ROOM_TOUR");
+                    tourFrames = tour != nullptr ? atoi(tour) : 0;
+                }
+                if (tourFrames > 0 && runner->frameCount >= 300 && (runner->frameCount - 300) % tourFrames == 0) {
+                    int32_t next = (runner->frameCount - 300) / tourFrames;
+                    if ((uint32_t) next < runner->dataWin->room.count) runner->pendingRoom = next;
+                    else runner->shouldExit = true;
+                }
+            }
+
             // Test hooks: reach a game room without the menus, or check the crash reporter.
             if (runner->frameCount == 300) {
                 if (getenv("AM2R_CRASH_TEST") != nullptr) *(volatile int*) 0 = 1;

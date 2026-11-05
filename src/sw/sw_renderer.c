@@ -22,10 +22,12 @@ static void SWRenderer_init(Renderer* renderer, DataWin* dataWin)
     swr->textures = (SWTexture**) safeCalloc(swr->totalTextureCount, sizeof(SWTexture*));
     swr->surfaces = (SWSurface**) safeCalloc(swr->surfaceCount, sizeof(SWSurface*));
     
-    //allocate texture LRU cache to allow for dynamic unloading of textures
-    swr->textureIndexLRU = (uint32_t*) safeCalloc(TEXTURE_LRU_LENGTH, sizeof(uint32_t));
-    swr->textureIndexLRUHead = 0;
-    swr->textureIndexLRUTail = 0;
+    //track texture use to allow for dynamic unloading of textures
+    swr->textureLastUsedFrame = (uint32_t*) safeCalloc(swr->totalTextureCount, sizeof(uint32_t));
+    swr->textureFrame = 0;
+    swr->textureBytesLoaded = 0;
+    const char* budgetMb = getenv("SWR_TEXTURE_BUDGET_MB");
+    swr->textureBudgetBytes = budgetMb != NULL ? (size_t) atoi(budgetMb) * 1024 * 1024 : 0;
     
     //HACK: this isn't good, really.  This should seriously be refactored.
     //expand datawin's tpag items list to include our surface count.
@@ -61,6 +63,7 @@ static void SWRenderer_beginFrame(Renderer* renderer, int32_t gameW, int32_t gam
     swr->gameH = gameH;
     swr->drawingToSurface = false;
     swr->blendMode = bm_normal;
+    swr->textureFrame++;
 
     if (swr->width != windowW || swr->height != windowH)
     {
