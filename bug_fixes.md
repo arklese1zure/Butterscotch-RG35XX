@@ -21,6 +21,8 @@
   recently used page, and `SWR_TEXTURE_BUDGET_MB` can limit its size.
 - Circles worked out a sine and cosine for every point, even off screen. In Undertale, a Snowdin room with
   snow piles ran at about 17 fps because of it.
+- Alpha values outside 0 to 1 weren't clamped, as a GPU would. In Undertale, a fader left running after the
+  Papyrus date reached a large negative alpha and blacked out the screen, with the dialogue still going.
 - Removed log calls that ran on every blend mode change and surface switch.
 - Added a faster path for sprites with no tint or blending.
 - Sprite rows are now tinted and blended with NEON, 8 pixels at a time.

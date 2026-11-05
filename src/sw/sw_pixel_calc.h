@@ -155,8 +155,12 @@ FORCE_INLINE void alphaBlend(uintpixel_t* dcolor, uintpixel_t scolor, int srcalp
 }
 
 // Calculates an internal "alpha" value from GML-provided "alpha" values.
+//
+// Games can pass values outside 0 to 1, as GPUs clamp them. Undertale's faders keep counting past 1.
 FORCE_INLINE int swrIntAlpha(float alphaf)
 {
+    if (alphaf >= 1.0f) return 256;
+    if (alphaf <= 0.0f) return 0;
     return (int)(alphaf * 256);
 }
 
