@@ -17,12 +17,17 @@
 - A view port offset could draw past the framebuffer. AM2R's earthquake effect crashed because of it.
 - Partly transparent texture pixels were drawn as fully solid. In AM2R, the shadow overlay in some rooms was
   an opaque bar over half the screen. About 5% of its images use partial transparency, including the HUD panels.
+- The texture cache evicted pages in load order, and only after an allocation failed. It now evicts the least
+  recently used page, and `SWR_TEXTURE_BUDGET_MB` can limit its size.
+- Circles worked out a sine and cosine for every point, even off screen. In Undertale, a Snowdin room with
+  snow piles ran at about 17 fps because of it.
 - Removed log calls that ran on every blend mode change and surface switch.
 - Added a faster path for sprites with no tint or blending.
 - Sprite rows are now tinted and blended with NEON, 8 pixels at a time.
 ### RG35XX support
 - A fixed 320x240 game window, doubled to the 640x480 screen in 16-bit color.
 - Button input and volume keys.
+- A native 640x480 mode through `RG35XX_FULL_RES`, for games with that window size.
 - Triple buffering through `AM2R_TRIPLEBUF`, so a slow frame doesn't halve the frame rate.
 ### Debugging tools
 - These are still in the code, and most are enabled by environment variables: room
