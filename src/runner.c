@@ -4002,6 +4002,12 @@ void Runner_handlePendingRoomChange(Runner* runner) {
         const char* newRoomName = runner->dataWin->room.rooms[newRoomIndex].name;
 
         logInfo("Room changed: %s (room %d) -> %s (room %d)\n", oldRoomName, oldRoomIndex, newRoomName, newRoomIndex);
+#ifdef TARGET_RG35XX
+        {
+            extern void rg35xxLogMemory(const char* where);
+            rg35xxLogMemory(newRoomName);
+        }
+#endif
 
         // If the old room is persistent, save its instance and visual state
         if (oldRoom->persistent) {

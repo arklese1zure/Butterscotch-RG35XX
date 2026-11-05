@@ -13256,9 +13256,18 @@ static RValue builtin_color_get_value(MAYBE_UNUSED VMContext* ctx, RValue* args,
 
 // Display stubs
 #ifdef TARGET_RG35XX
-// Matches the fixed 320x240 window, so AM2R draws its screen at 1x with no offset.
-STUB_RETURN_VALUE(display_get_width, 320.0)
-STUB_RETURN_VALUE(display_get_height, 240.0)
+#include "platformdefs.h"
+// Matches the window, so AM2R draws its screen at 1x with no offset.
+static RValue builtin_display_get_width(MAYBE_UNUSED VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    int32_t w = 0, h = 0;
+    platformGetWindowSize(&w, &h);
+    return RValue_makeReal((GMLReal) w);
+}
+static RValue builtin_display_get_height(MAYBE_UNUSED VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE_UNUSED int32_t argCount) {
+    int32_t w = 0, h = 0;
+    platformGetWindowSize(&w, &h);
+    return RValue_makeReal((GMLReal) h);
+}
 #else
 STUB_RETURN_VALUE(display_get_width, 640.0)
 STUB_RETURN_VALUE(display_get_height, 480.0)

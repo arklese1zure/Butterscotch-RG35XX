@@ -29,7 +29,7 @@ arm|arm-clean)
         set -o pipefail
         make -j"$(nproc)" CC="$CC" BACKEND=sdl1 AUDIO_BACKEND=miniaudio PKG_CONFIG=true \
             SDL1_CFLAGS="$(/opt/miyoo/bin/sdl-config --cflags)" SDL1_LIBS="$(/opt/miyoo/bin/sdl-config --libs)" \
-            DISABLE_LEGACY_GL=1 DISABLE_MODERN_GL=1 DISABLE_WAD16=1 DISABLE_WAD17=1 DISABLE_PHYSICS=1 \
+            DISABLE_LEGACY_GL=1 DISABLE_MODERN_GL=1 DISABLE_WAD17=1 DISABLE_PHYSICS=1 \
             DISABLE_VM_TRACING=1 DISABLE_VM_GML_PROFILER=1 DISABLE_VM_OPCODE_PROFILER=1 \
             CFLAGS="-O3 -g -DNDEBUG -DTARGET_RG35XX -marm -mcpu=cortex-a9 -mfpu=neon -mfloat-abi=softfp" \
             2>&1 | tee build-arm.log | grep -v "linker input file unused" | tail -5

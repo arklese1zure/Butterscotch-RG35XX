@@ -41,9 +41,10 @@ typedef struct {
 static GamepadMapping joystickMappings[MAX_GAMEPADS];
 
 #ifdef TARGET_RG35XX
-// The game always sees a 320x240 window; platformSwapBuffers doubles it to the 640x480 screen.
-#define RG35XX_GAME_W 320
-#define RG35XX_GAME_H 240
+// By default the game sees a 320x240 window, and platformSwapBuffers doubles it to the 640x480 screen.
+// RG35XX_FULL_RES gives it the whole screen instead.
+static int rgGameW = 320;
+static int rgGameH = 240;
 #define RG35XX_SCREEN_W 640
 #define RG35XX_SCREEN_H 480
 #define RG35XX_BTN_START 8
@@ -312,8 +313,12 @@ bool platformInit(int32_t reqW, int32_t reqH, const char *title, bool headless) 
     loadGamepadMappings();
 
 #ifdef TARGET_RG35XX
-    reqW = RG35XX_GAME_W;
-    reqH = RG35XX_GAME_H;
+    if (getenv("RG35XX_FULL_RES") != NULL) {
+        rgGameW = RG35XX_SCREEN_W;
+        rgGameH = RG35XX_SCREEN_H;
+    }
+    reqW = rgGameW;
+    reqH = rgGameH;
 #endif
     fbWidth = reqW;
     fbHeight = reqH;
@@ -389,29 +394,60 @@ void platformSetNextFramebuffer(uint32_t* framebuffer, int width, int height) {
     nextFbPixels = framebuffer;
 }
 
+// Test tool: the process's size and the memory the system could still give it.
+void rg35xxLogMemory(const char* where) {
+    long pages = 0, ignored = 0;
+    FILE* statm = fopen("/proc/self/statm", "r");
+    if (statm != NULL) {
+        if (fscanf(statm, "%ld %ld", &ignored, &pages) != 2) pages = 0;
+        fclose(statm);
+    }
+    long freeKb = 0, buffersKb = 0, cachedKb = 0;
+    FILE* info = fopen("/proc/meminfo", "r");
+    if (info != NULL) {
+        char row[80];
+        while (fgets(row, sizeof(row), info) != NULL) {
+            sscanf(row, "MemFree: %ld", &freeKb);
+            sscanf(row, "Buffers: %ld", &buffersKb);
+            sscanf(row, "Cached: %ld", &cachedKb);
+        }
+        fclose(info);
+    }
+    logInfo("MEM %s: game %ld MB, free %ld MB, reclaimable %ld MB\n", where, pages * 4 / 1024, freeKb / 1024, (buffersKb + cachedKb) / 1024);
+}
+
 static void rg35xxPresent(void) {
     if (!nextFbPixels) return;
 
     const SDL_PixelFormat* f = scr->format;
-    // One doubled row at a time, written twice: reading back from the framebuffer is slow.
-    static uint32_t line[RG35XX_GAME_W];
+    // One row at a time, and doubled rows written twice: reading back from the framebuffer is slow.
+    static uint16_t line[RG35XX_SCREEN_W];
+    const bool doubled = rgGameW != RG35XX_SCREEN_W;
+    const size_t lineSize = sizeof(line);
     const uint32_t* src = nextFbPixels;
 
     if (SDL_MUSTLOCK(scr)) SDL_LockSurface(scr);
     uint8_t* dst = (uint8_t*) scr->pixels;
-    for (int y = 0; y < RG35XX_GAME_H; y++) {
-        for (int x = 0; x < RG35XX_GAME_W; x++) {
+    for (int y = 0; y < rgGameH; y++) {
+        for (int x = 0; x < rgGameW; x++) {
             uint32_t c = src[x];
-            uint32_t p = (((c >> 16) & 0xff) >> f->Rloss) << f->Rshift
-                       | (((c >> 8) & 0xff) >> f->Gloss) << f->Gshift
-                       | ((c & 0xff) >> f->Bloss) << f->Bshift;
-            line[x] = p | (p << 16);
+            uint16_t p = (uint16_t) ((((c >> 16) & 0xff) >> f->Rloss) << f->Rshift
+                                   | (((c >> 8) & 0xff) >> f->Gloss) << f->Gshift
+                                   | ((c & 0xff) >> f->Bloss) << f->Bshift);
+            if (doubled) {
+                line[x * 2] = p;
+                line[x * 2 + 1] = p;
+            } else {
+                line[x] = p;
+            }
         }
-        memcpy(dst, line, sizeof(line));
+        memcpy(dst, line, lineSize);
         dst += scr->pitch;
-        memcpy(dst, line, sizeof(line));
-        dst += scr->pitch;
-        src += RG35XX_GAME_W;
+        if (doubled) {
+            memcpy(dst, line, lineSize);
+            dst += scr->pitch;
+        }
+        src += rgGameW;
     }
     if (SDL_MUSTLOCK(scr)) SDL_UnlockSurface(scr);
     SDL_Flip(scr);
