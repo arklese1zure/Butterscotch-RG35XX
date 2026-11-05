@@ -186,6 +186,8 @@ typedef struct {
     void (*gpuSetFog)(Renderer* renderer, bool enable, uint32_t color);
     // Optional: platform-specific tile rendering (nullptr = use default drawSpritePart path)
     void (*drawTile)(Renderer* renderer, RoomTile* tile, float offsetX, float offsetY);
+    // Optional: whether nothing in this area of the room would reach the screen.
+    bool (*isAreaOffscreen)(Renderer* renderer, float x1, float y1, float x2, float y2);
     void (*drawSpriteTiled)(Renderer* renderer, int32_t tpagIndex, float originX, float originY, float x, float y, float xscale, float yscale, bool tileX, bool tileY, float roomW, float roomH, uint32_t color, float alpha);
     // Surface Functions
     int32_t (*createSurface)(Renderer* renderer, int32_t width, int32_t height);
@@ -789,17 +791,33 @@ static inline int32_t Renderer_normalizeCirclePrecision(int32_t precision) {
 // draw_circle/draw_ellipse helper: approximates the shape as a polygon with "circlePrecision" segments.
 // Filled: triangle fan from center (center = col1, perimeter = col2). Outline: line strip around the perimeter.
 static inline void Renderer_drawEllipseColor(Renderer* renderer, float cx, float cy, float rx, float ry, uint32_t col1, uint32_t col2, bool outline) {
+    if (renderer->vtable->isAreaOffscreen != nullptr
+        && renderer->vtable->isAreaOffscreen(renderer, cx - fabsf(rx), cy - fabsf(ry), cx + fabsf(rx), cy + fabsf(ry))) {
+        return;
+    }
+
     int32_t segments = Renderer_normalizeCirclePrecision(renderer->circlePrecision);
     if (4 > segments) segments = 4;
 
-    float step = 6.2831853f / (float) segments;
+    // Games can draw hundreds of circles a frame, so sine and cosine are only worked out once per precision.
+    static float unitCircle[(64 / 4) + 1][64 + 1][2];
+    float (*points)[2] = unitCircle[segments / 4];
+    if (points[0][0] == 0.0f) {
+        float step = 6.2831853f / (float) segments;
+        points[0][0] = 1.0f;
+        for (int32_t i = 1; segments >= i; i++) {
+            float angle = step * (float) i;
+            points[i][0] = cosf(angle);
+            points[i][1] = sinf(angle);
+        }
+    }
+
     float prevX = cx + rx;
     float prevY = cy;
 
     for (int32_t i = 1; segments >= i; i++) {
-        float angle = step * (float) i;
-        float curX = cx + rx * cosf(angle);
-        float curY = cy + ry * sinf(angle);
+        float curX = cx + rx * points[i][0];
+        float curY = cy + ry * points[i][1];
 
         if (outline) {
             renderer->vtable->drawLine(renderer, prevX, prevY, curX, curY, 1.0f, col2, renderer->drawAlpha);

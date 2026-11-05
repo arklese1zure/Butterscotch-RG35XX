@@ -356,6 +356,16 @@ static void SWRenderer_drawLine(Renderer* renderer, float x1, float y1, float x2
     swrDrawLine(renderer, x1, y1, x2, y2, width, colorCvt, colorCvt, alpha);
 }
 
+static bool SWRenderer_isAreaOffscreen(Renderer* renderer, float x1, float y1, float x2, float y2)
+{
+    SWRenderer* swr = (SWRenderer*) renderer;
+    swrTransformPosIfNeeded(swr, &x1, &y1);
+    swrTransformPosIfNeeded(swr, &x2, &y2);
+    // A pixel of margin, for rounding.
+    return x2 + 1.0f < (float) swr->portX || y2 + 1.0f < (float) swr->portY
+        || x1 - 1.0f >= (float) swr->maxX || y1 - 1.0f >= (float) swr->maxY;
+}
+
 static void SWRenderer_drawTriangle(Renderer* renderer,
                                     float x1, float y1, float x2, float y2, float x3, float y3,
                                     uint32_t color1, uint32_t color2, uint32_t color3,
@@ -1226,6 +1236,7 @@ Renderer* SWRenderer_create(void)
     swrVtable.init                     = SWRenderer_init;
     swrVtable.destroy                  = SWRenderer_destroy;
     swrVtable.beginFrame               = SWRenderer_beginFrame;
+    swrVtable.isAreaOffscreen          = SWRenderer_isAreaOffscreen;
     swrVtable.endFrameInit             = SWRenderer_endFrameInit;
     swrVtable.endFrameEnd              = SWRenderer_endFrameEnd;
     swrVtable.beginView                = SWRenderer_beginView;
