@@ -44,6 +44,30 @@ int main(void)
             compared++;
         }
     }
+    // The solid color row, as rectangles draw it.
+    for (int round = 0; round < 200000; round++)
+    {
+        uintpixel_t a[ROW], b[ROW];
+        for (int i = 0; i < ROW; i++)
+            a[i] = b[i] = ((uint32_t) rand() << 16) ^ (uint32_t) rand() | 0xFF000000;
+        uintpixel_t color = ((uint32_t) rand() << 16) ^ (uint32_t) rand() | 0xFF000000;
+        const int* al = alphas[rand() % 10];
+        int count = rand() % (ROW + 1);
+        swrBlendSolidRowNeon(a, count, color, al[0], al[1]);
+        for (int i = 0; i < count; i++)
+            alphaBlend(&b[i], color, al[0], al[1]);
+        for (int i = 0; i < ROW; i++)
+        {
+            for (int c = 0; c < 32; c += 8)
+            {
+                long diff = labs((long) ((a[i] >> c) & 0xFF) - (long) ((b[i] >> c) & 0xFF));
+                if (diff > worst) worst = diff;
+                if (diff > 2 && bad++ < 8)
+                    printf("solid diff %ld color=%08x alpha=%d,%d got=%08x want=%08x\n", diff, (unsigned) color, al[0], al[1], (unsigned) a[i], (unsigned) b[i]);
+            }
+            compared++;
+        }
+    }
     printf("compared %ld pixels, worst channel difference %ld, over 2: %ld\n", compared, worst, bad);
     return bad != 0;
 }

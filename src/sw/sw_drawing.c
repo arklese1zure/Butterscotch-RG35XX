@@ -47,8 +47,12 @@ static void swrDrawHLineInt(Renderer* renderer, int dx, int dy, int dw, uintpixe
 #endif
     {
         uintpixel_t *line = &swr->fb[dy * swr->fbPitch + dx];
+#ifdef SW_NEON_ROWS
+        swrBlendSolidRowNeon(line, dw, color, srcalpha, invalpha);
+#else
         for (int i = 0; i < dw; i++)
             alphaBlend(&line[i], color, srcalpha, invalpha);
+#endif
     }
 #if PIXEL_SIZE == 32
     else
@@ -310,10 +314,16 @@ static void swrDrawSpriteInternal(
     if (diffxl != 0 || diffyl != 0 || diffxu != 0 || diffyu != 0)
     {
         //adjust source coordinates too
-        diffxl = (int)((long)diffxl * osw / odw);
-        diffyl = (int)((long)diffyl * osh / odh);
-        diffxu = (int)((long)(diffxu + 1) * osw / odw);
-        diffyu = (int)((long)(diffyu + 1) * osh / odh);
+        // Unscaled sprites clip exactly. The extra pixel would make them look scaled, which is
+        // both a much slower path and a slight stretch.
+        if (osw != odw) {
+            diffxl = (int)((long)diffxl * osw / odw);
+            diffxu = (int)((long)(diffxu + 1) * osw / odw);
+        }
+        if (osh != odh) {
+            diffyl = (int)((long)diffyl * osh / odh);
+            diffyu = (int)((long)(diffyu + 1) * osh / odh);
+        }
         sx += flipX ? diffxu : diffxl;
         sy += flipY ? diffyu : diffyl;
         sw -= diffxl + diffxu;
