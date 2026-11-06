@@ -66,6 +66,8 @@ static void rg35xxCrashHandler(int sig, siginfo_t* info, void* context) {
         }
     }
 
+    fflush(stdout);
+    fflush(stderr);
     signal(sig, SIG_DFL);
     raise(sig);
 }
@@ -134,6 +136,10 @@ void rg35xxInstallCrashHandler(void) {
 int main(int argc, char* argv[]) {
     setbuf(stderr, NULL);
 #ifdef TARGET_RG35XX
+    // The log goes to the SD card, where a write per line is slow enough to show. The crash handler flushes.
+    static char rgLogBuffer[2][16384];
+    setvbuf(stdout, rgLogBuffer[0], _IOFBF, sizeof(rgLogBuffer[0]));
+    setvbuf(stderr, rgLogBuffer[1], _IOFBF, sizeof(rgLogBuffer[1]));
     rg35xxInstallCrashHandler();
     rg35xxStartProfiler();
 #endif
