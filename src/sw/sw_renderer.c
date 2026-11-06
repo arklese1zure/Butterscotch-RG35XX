@@ -694,11 +694,22 @@ static int32_t SWRenderer_createSurface(Renderer* renderer, int32_t width, int32
 {
     SWRenderer* swr = (SWRenderer*) renderer;
     
+    // IDs start at 1. GameMaker games can use 0 for "not created yet": AM2R's oControl does, for two surfaces,
+    // and with a real surface 0 it took that one to be both of them.
+    // Freed IDs aren't handed out again until the others have been: games keep stale IDs and check them with
+    // surface_exists. AM2R's oControl frees its old screen_surface ID every step, which took the next
+    // surface to get that ID, and the Zeta Metroid it belonged to was never drawn.
     int32_t slot = -1;
-    for (size_t i = 0; i < swr->surfaceCount; i++)
+    if (swr->nextSurfaceId < 1 || swr->nextSurfaceId >= swr->surfaceCount)
+        swr->nextSurfaceId = 1;
+    for (size_t n = 1; n < swr->surfaceCount; n++)
     {
+        size_t i = swr->nextSurfaceId + n - 1;
+        if (i >= swr->surfaceCount)
+            i -= swr->surfaceCount - 1;
         if (swr->surfaces[i] == NULL) {
             slot = (int32_t) i;
+            swr->nextSurfaceId = i + 1;
             break;
         }
     }
@@ -716,6 +727,8 @@ static int32_t SWRenderer_createSurface(Renderer* renderer, int32_t width, int32
 static bool SWRenderer_surfaceExists(Renderer* renderer, int32_t surfaceID)
 {
     SWRenderer* swr = (SWRenderer*) renderer;
+    if (surfaceID == APPLICATION_SURFACE_ID)
+        return true;
     if (surfaceID < 0 || (size_t) surfaceID >= swr->surfaceCount)
         return false;
     
@@ -764,6 +777,11 @@ static void SWRenderer_drawSurface(Renderer* renderer, int32_t surfaceID,
     }
     SWTexture* surface, localSurface;
     if (surfaceID == APPLICATION_SURFACE_ID) {
+        // Games that draw the application surface to the screen themselves. Here it already is the screen.
+        if (!swr->drawingToSurface && x == 0.0f && y == 0.0f && xscale == 1.0f && yscale == 1.0f
+            && !swrMustRotate(angleDeg) && (color & 0xFFFFFF) == 0xFFFFFF && alpha >= 1.0f) {
+            return;
+        }
         localSurface.buffer = swr->drawingToSurface ? swr->mainFb : swr->fb;
         localSurface.width = swr->drawingToSurface ? swr->mainWidth : swr->width;
         localSurface.height = swr->drawingToSurface ? swr->mainHeight : swr->height;
@@ -846,7 +864,7 @@ static void SWRenderer_surfaceFree(Renderer* renderer, int32_t surfaceID)
     }
     
     if (surfaceID < 0 || (size_t) surfaceID >= swr->surfaceCount || swr->surfaces[surfaceID] == NULL) {
-        logError("swr: Cannot resize surface id %d, it's invalid\n", surfaceID);
+        // Freeing an ID that no longer exists is normal: GameMaker ignores it, and AM2R does it every step.
         return;
     }
     

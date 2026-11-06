@@ -15,7 +15,7 @@
 #endif
 
 // Configurable Properties
-#define SURFACE_MAX_COUNT 64
+#define SURFACE_MAX_COUNT 4096
 // (NOTE: See PIXEL_SIZE in defines.h)
 
 
@@ -89,6 +89,7 @@ typedef struct
     // only used for surfaces.  The application surface doesn't support these at the moment.
     int currentSurfaceIndex;
     int writeMask;
+    size_t nextSurfaceId; // where the search for a free surface ID starts
 }
 SWRenderer;
 
