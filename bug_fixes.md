@@ -10,6 +10,9 @@
   rooms had the wrong colors and missing blocks after pausing.
 - `layer` was always treated as the built-in variable that GameMaker Studio 2 added, even in older games,
   where it's an ordinary variable. In AM2R, the walls hiding secret rooms never faded out.
+- Freed surface IDs were handed out again right away, and the first surface got ID 0, which games use for
+  "not created yet". AM2R frees a stale ID every step, so a new surface that got it was freed too. In AM2R,
+  small item pickups showed a black screen and the Zeta Metroid was invisible.
 - `SDL_JoystickName` was called every frame on SDL 1.2. On this device it dropped the game to about 9 fps.
 ### Fixes in the software renderer
 - Added the missing `gpuSetTexFilter`, without which no game could start.
@@ -23,14 +26,22 @@
   snow piles ran at about 17 fps because of it.
 - Alpha values outside 0 to 1 weren't clamped, as a GPU would. In Undertale, a fader left running after the
   Papyrus date reached a large negative alpha and blacked out the screen, with the dialogue still going.
+- `surface_exists` was false for the application surface, so copies of the screen came out black. In AM2R,
+  item pickups, the pause screen and room transitions had a black backdrop, and the water ripples were missing.
+- Unscaled sprites clipped at the right or bottom edge lost a source pixel, which made them take the much slower
+  scaled path and stretched them slightly.
+- Stacked translucent layers of one color are merged into one. Undertale's bridge fall adds a full-screen layer
+  every frame for its fade to white, which slowed the scene to about 3 fps.
 - Removed log calls that ran on every blend mode change and surface switch.
 - Added a faster path for sprites with no tint or blending.
-- Sprite rows are now tinted and blended with NEON, 8 pixels at a time.
+- Sprite rows are now tinted and blended with NEON, 8 pixels at a time, and untinted solid or clear rows
+  4 at a time without splitting color channels. Rectangles are blended with NEON too.
 ### RG35XX support
 - A fixed 320x240 game window, doubled to the 640x480 screen in 16-bit color.
 - Button input and volume keys.
 - A native 640x480 mode through `RG35XX_FULL_RES`, for games with that window size.
 - Triple buffering through `AM2R_TRIPLEBUF`, so a slow frame doesn't halve the frame rate.
+- The log is buffered, since a write to the SD card for every line could stall a frame.
 ### Debugging tools
 - These are still in the code, and most are enabled by environment variables: room
 jumping, object spawning, a crash reporter, a sampling profiler, surface tracing and a spatial grid

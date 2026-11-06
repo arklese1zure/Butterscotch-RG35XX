@@ -12,12 +12,14 @@ It's based on [cobaltgit's Miyoo Mini fork](https://github.com/cobaltgit/Butters
 
 > [!NOTE]
 > The fixes here have been done specifically for the RG35XX, and haven't been tested in other consoles.
+> One build runs both games below, from this branch (`rg35xx`). Each game has its own launcher and folder.
 > **See [The original README](README.original.md).**
 
 ## Status
 | Game | Notes |
 | -------- | ----- |
-| AM2R | Tested with AM2R 1.1 (WAD version 14), through the first area of the game and its first Metroid fights.<br>It holds close to 60 fps at stock CPU speed in most of those rooms, and the heaviest room tested runs slightly below that. Later areas and other games are untested. |
+| AM2R | Tested with AM2R 1.1 (WAD version 14), through the fourth area of the game and its Zeta Metroid fight.<br>It holds close to 60 fps at stock CPU speed in most of those rooms, and the heaviest room tested runs slightly below that. Later areas and other games are untested. |
+| Undertale | Tested with the Steam Linux version (WAD version 16, `game.unx`), from the start through Waterfall.<br>It runs at the game's 30 fps at the full 640x480 in the areas tested, with short pauses when new graphics load. Later areas are untested. |
 |Other games|Untested|
 
 
@@ -38,6 +40,16 @@ with this repository in its `workspace/am2r-port` folder and the image tagged `r
    `Roms/APPS/am2r`. They aren't included here.
 4. Start it from the GarlicOS menu.
 
+### Undertale
+> [!NOTE]
+> There are no Undertale files in this repository, and no links to them. Finding your own copy of the game is up to you.
+1. Copy `port/undertale.sh` to `Roms/APPS` on the SD card.
+2. Create `Roms/APPS/undertale`, and copy `build/butterscotch` into it.
+3. Copy the contents of the `assets` folder from your own copy of the game (`game.unx` and the `.ogg` files)
+   into `Roms/APPS/undertale`. Other versions, such as Windows, use `data.win` instead. They're untested,
+   but changing the last argument in `undertale.sh` to match should be enough.
+4. Start it from the GarlicOS menu.
+
 ## Controls
 ### AM2R
 The layout follows Metroid Fusion. The buttons act as AM2R's default keyboard keys (the table is `rgBindings` in `src/backends/sdl1.c`), and on its first run `port/am2r.sh` sets the game to one-button aiming and hold-to-arm missiles.
@@ -50,6 +62,17 @@ The layout follows Metroid Fusion. The buttons act as AM2R's default keyboard ke
 | X | Morph | Select | Switch weapon |
 | Start | Start | Menu | Options |
 | Menu + Start | Quit to GarlicOS | Vol+ / Vol- | Master volume, saved in `volume.txt` |
+
+### Undertale
+Undertale uses the same buttons as AM2R, which map to its keys like this.
+
+| Button | Action | Button | Action |
+|---|---|---|---|
+| D-pad | Move | X | Menu |
+| A or Start | Confirm | B, Y or L1 | Cancel, hold to run |
+| Menu + Start | Quit to GarlicOS | Vol+ / Vol- | Master volume |
+
+Holding Menu on its own acts as Esc, which Undertale uses to quit after a moment.
 
 ## Changes from the base fork
 ### Bug fixes
