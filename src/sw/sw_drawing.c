@@ -26,6 +26,7 @@ FORCE_INLINE void swrPlotPixel(Renderer* renderer, int x, int y, uintpixel_t col
     if (x < swr->portX || y < swr->portY) return;
     if (x >= swr->maxX || y >= swr->maxY) return;
     
+    swrFlushPendingFill(swr);
     alphaBlend(&swr->fb[y * swr->fbPitch + x], color, srcalpha, dstalpha);
 }
 
@@ -39,6 +40,7 @@ static void swrDrawHLineInt(Renderer* renderer, int dx, int dy, int dw, uintpixe
     if (dx + dw >= swr->maxX) dw = swr->maxX - dx;
     if (dw <= 0) return;
     
+    swrFlushPendingFill(swr);
     int srcalpha = swrCalcSrcAlpha(swr, alpha);
     int invalpha = swrCalcDstAlpha(swr, alpha);
     
@@ -97,6 +99,7 @@ static void swrDrawVLineInt(Renderer* renderer, int dx, int dy, int dh, uintpixe
     if (dy + dh >= swr->maxY) dh = swr->maxY - dy;
     if (dh <= 0) return;
     
+    swrFlushPendingFill(swr);
     int srcalpha = swrCalcSrcAlpha(swr, alpha);
     int invalpha = swrCalcDstAlpha(swr, alpha);
     
@@ -278,6 +281,74 @@ static void swrDrawLineInt(Renderer* renderer, int x1, int y1, int x2, int y2, M
     }
 }
 
+void swrFlushPendingFillSlow(SWRenderer* swr)
+{
+    swr->pendingFill.active = false;
+    int a = swr->pendingFill.alpha;
+    for (int y = 0; y < swr->pendingFill.h; y++)
+    {
+        uintpixel_t* line = &swr->pendingFill.fb[(swr->pendingFill.y + y) * swr->pendingFill.fbPitch + swr->pendingFill.x];
+#ifdef SW_NEON_ROWS
+        swrBlendSolidRowNeon(line, swr->pendingFill.w, swr->pendingFill.color, a, 256 - a);
+#else
+        for (int x = 0; x < swr->pendingFill.w; x++)
+            alphaBlend(&line[x], swr->pendingFill.color, a, 256 - a);
+#endif
+    }
+}
+
+// Takes over a draw whose clipped source is all one color, merging it into the held-back fill when that
+// covers the same area in the same color. Layers of one color with alphas a and b look like one layer
+// with alpha a + b - ab. Only for normal blending to the screen, where nothing else watches the order.
+static bool swrTryMergeFill(SWRenderer* swr, int dx, int dy, int dw, int dh,
+                            SWTexture* texture, int sx, int sy, int sw, int sh, uintpixel_t tintColor, int alpha)
+{
+#if PIXEL_SIZE == 32
+    // The write mask only applies to surfaces, so it doesn't matter here.
+    if (swr->drawingToSurface || swr->blendMode != bm_normal)
+        return false;
+    if (sw * sh > 16 || dw * dh < 4096 || alpha <= 0)
+        return false;
+    
+    uintpixel_t texel = texture->buffer[sy * texture->width + sx];
+    for (int y = 0; y < sh; y++)
+        for (int x = 0; x < sw; x++)
+            if (texture->buffer[(sy + y) * texture->width + sx + x] != texel)
+                return false;
+    if (!opaque(texel))
+        return true; // nothing to draw
+    
+    int a = alpha > 256 ? 256 : alpha;
+    if (!solid(texel))
+        a = swrTexelAlpha(a, (int) (texel >> 24));
+    uintpixel_t color = tint(tintColor, texel) | 0xFF000000;
+    
+    if (swr->pendingFill.active && swr->pendingFill.fb == swr->fb && swr->pendingFill.color == color
+        && swr->pendingFill.x == dx && swr->pendingFill.y == dy && swr->pendingFill.w == dw && swr->pendingFill.h == dh)
+    {
+        int merged = swr->pendingFill.alpha + a - (swr->pendingFill.alpha * a + 128) / 256;
+        swr->pendingFill.alpha = merged > 256 ? 256 : merged;
+        return true;
+    }
+    
+    swrFlushPendingFill(swr);
+    swr->pendingFill.active = true;
+    swr->pendingFill.fb = swr->fb;
+    swr->pendingFill.fbPitch = swr->fbPitch;
+    swr->pendingFill.x = dx;
+    swr->pendingFill.y = dy;
+    swr->pendingFill.w = dw;
+    swr->pendingFill.h = dh;
+    swr->pendingFill.color = color;
+    swr->pendingFill.alpha = a;
+    return true;
+#else
+    (void) swr; (void) dx; (void) dy; (void) dw; (void) dh; (void) texture;
+    (void) sx; (void) sy; (void) sw; (void) sh; (void) tintColor; (void) alpha;
+    return false;
+#endif
+}
+
 static void swrDrawSpriteInternal(
     Renderer* renderer, int dx, int dy, int dw, int dh,
     SWTexture* texture, int sx, int sy, int sw, int sh,
@@ -337,6 +408,10 @@ static void swrDrawSpriteInternal(
     if (sx + sw >= texture->width)  { sw = texture->width  - sx; }
     if (sy + sh >= texture->height) { sh = texture->height - sy; }
     if (sw <= 0 || sh <= 0) return;
+    
+    if (swrTryMergeFill(swr, dx, dy, dw, dh, texture, sx, sy, sw, sh, tintColor, alpha))
+        return;
+    swrFlushPendingFill(swr);
     
     //okay, now we can finally get on with rendering
     
@@ -451,6 +526,7 @@ static void swrDrawSpriteRotatedInternal(
 )
 {
     SWRenderer* swr = (SWRenderer*) renderer;
+    swrFlushPendingFill(swr);
     float angleRad = -angleDeg * M_PI / 180.0f;
     
     bool flipX = false, flipY = false;
@@ -557,6 +633,7 @@ static void swrDrawSpriteRotatedInternal(
 
 static void swrDrawTriangleInternal(SWRenderer* swr, int xup, int yup, int xleft, int yleft, int xright, int yright, uint32_t color1, uint32_t color2, uint32_t color3, int alpha)
 {
+    swrFlushPendingFill(swr);
     // TODO: update this
     (void) color2;
     (void) color3;
@@ -703,6 +780,7 @@ static bool swrResolveGlyph(
 bool swrSwitchToSurface(Renderer* renderer, int32_t targetSurfaceId, bool restoreOldView)
 {
     SWRenderer* swr = (SWRenderer*) renderer;
+    swrFlushPendingFill(swr);
     
     if (swr->drawingToSurface) {
         swrCommitShadowWritesToSurfaceIfNeeded(swr, swr->surfaces[swr->currentSurfaceIndex]);

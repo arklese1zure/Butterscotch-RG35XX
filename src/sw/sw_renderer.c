@@ -48,6 +48,7 @@ static void SWRenderer_init(Renderer* renderer, DataWin* dataWin)
 
 static void SWRenderer_destroy(Renderer* renderer)
 {
+    swrFlushPendingFill((SWRenderer*) renderer);
     SWRenderer* swr = (SWRenderer*) renderer;
     
     // TODO: why didn't I implement this.
@@ -65,6 +66,7 @@ static void SWRenderer_beginFrame(Renderer* renderer, int32_t gameW, int32_t gam
     swr->blendMode = bm_normal;
     swr->textureFrame++;
 
+    swrFlushPendingFill(swr);
     if (swr->width != windowW || swr->height != windowH)
     {
         //allocate frame buffer
@@ -88,6 +90,7 @@ static void SWRenderer_endFrameEnd(Renderer* renderer)
 {
     SWRenderer* swr = (SWRenderer*) renderer;
     assert(!swr->drawingToSurface);
+    swrFlushPendingFill(swr);
     platformSetNextFramebuffer(swr->fb, swr->width, swr->height);
 }
 
@@ -544,12 +547,12 @@ static void SWRenderer_drawSurfaceTiled(Renderer* renderer, int32_t surfaceID, f
 
 static void SWRenderer_flush(Renderer* renderer)
 {
-    (void)renderer;
-    UNIMP();
+    swrFlushPendingFill((SWRenderer*) renderer);
 }
 
 static void SWRenderer_clearScreen(Renderer* renderer, uint32_t color, float alpha)
 {
+    swrFlushPendingFill((SWRenderer*) renderer);
     SWRenderer* swr = (SWRenderer*) renderer;
     
     color = swrConvertPixel(color);
@@ -769,6 +772,7 @@ static void SWRenderer_drawSurface(Renderer* renderer, int32_t surfaceID,
                                    float x, float y, float xscale, float yscale, float angleDeg,
                                    uint32_t color, float alpha)
 {
+    swrFlushPendingFill((SWRenderer*) renderer);
     SWRenderer* swr = (SWRenderer*) renderer;
     if (swrTraceSurfaces > 0) {
         logInfo("TRACE draw_surface id=%d src=%d,%d %dx%d at %.0f,%.0f scale=%.2f,%.2f color=%06x alpha=%.2f blend=%d target=%d\n",
@@ -878,6 +882,7 @@ static void SWRenderer_surfaceCopy(Renderer* renderer,
                                    int32_t SrcSurfaceID, int32_t SrcX, int32_t SrcY,
                                    int32_t SrcW, int32_t SrcH, bool part)
 {
+    swrFlushPendingFill((SWRenderer*) renderer);
     (void) part; // TODO: figure out the meaning of this parameter
 
     SWRenderer* swr = (SWRenderer*) renderer;
@@ -956,6 +961,7 @@ static void SWRenderer_surfaceCopy(Renderer* renderer,
 
 static bool SWRenderer_surfaceGetPixels(Renderer* renderer, int32_t surfaceID, uint8_t* outRGBA)
 {
+    swrFlushPendingFill((SWRenderer*) renderer);
     UNIMP();
     (void)renderer; (void)surfaceID; (void)outRGBA;
     return false;
@@ -972,6 +978,7 @@ static int32_t SWRenderer_createSpriteFromSurface(Renderer* renderer, int32_t su
                                                    bool removeback, bool smooth,
                                                    int32_t xorig, int32_t yorig)
 {
+    swrFlushPendingFill((SWRenderer*) renderer);
     SWRenderer* swr = (SWRenderer*) renderer;
     
     (void) smooth;
@@ -1116,6 +1123,7 @@ static RendererVtable swrVtable;
 
 void SWRenderer_clearFrameBuffer(Renderer* renderer, uint32_t color)
 {
+    swrFlushPendingFill((SWRenderer*) renderer);
     SWRenderer* swr = (SWRenderer*) renderer;
     
     uintpixel_t pxcolor = swrConvertPixel(color);

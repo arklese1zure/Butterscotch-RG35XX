@@ -90,8 +90,28 @@ typedef struct
     int currentSurfaceIndex;
     int writeMask;
     size_t nextSurfaceId; // where the search for a free surface ID starts
+    
+    // A one-color draw held back so the same draw over the same area can be merged into it.
+    // Undertale fades by stacking a new translucent full-screen layer every frame.
+    struct {
+        bool active;
+        uintpixel_t* fb;
+        int fbPitch;
+        int x, y, w, h;
+        uintpixel_t color;
+        int alpha; // 0 to 256
+    } pendingFill;
 }
 SWRenderer;
+
+void swrFlushPendingFillSlow(SWRenderer* swr);
+
+// Draws the held-back fill. Anything else that reads or writes pixels calls this first.
+static inline void swrFlushPendingFill(SWRenderer* swr)
+{
+    if (swr->pendingFill.active)
+        swrFlushPendingFillSlow(swr);
+}
 
 // Inlined function definitions included below
 #include "sw_pixel_calc.h"
