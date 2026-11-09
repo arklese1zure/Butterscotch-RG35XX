@@ -917,6 +917,7 @@ static void parseSPRT(BinaryReader* reader, DataWin* dw, bool skipLoadingPrecise
                 if (dw->mappedFile) {
                     repeat(maskDataCount, j) {
                         spr->masks[j] = dw->mappedFile + BinaryReader_getPosition(reader);
+                        BinaryReader_skip(reader, bytesPerMask);
                     }
                 } else {
                     repeat(maskDataCount, j) {

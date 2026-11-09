@@ -13,6 +13,8 @@
 - Freed surface IDs were handed out again right away, and the first surface got ID 0, which games use for
   "not created yet". AM2R frees a stale ID every step, so a new surface that got it was freed too. In AM2R,
   small item pickups showed a black screen and the Zeta Metroid was invisible.
+- With `--load-type map-file`, every animation frame of a sprite used the collision mask of its first frame.
+  In AM2R, missile explosions stayed tiny and couldn't push the batteries, and super missiles had the wrong hitbox.
 - `SDL_JoystickName` was called every frame on SDL 1.2. On this device it dropped the game to about 9 fps.
 ### Fixes in the software renderer
 - Added the missing `gpuSetTexFilter`, without which no game could start.
