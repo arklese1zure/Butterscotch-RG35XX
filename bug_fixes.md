@@ -44,6 +44,10 @@
   own path, which rounds edges like a GPU and is much faster than the general rotated one.
 - Pixel-precise collisions worked out a sine and cosine for every pixel they tested, now once per pair of
   instances. Together with the fix above, the worst stretch of a super bomb went from about 29 ms a frame to 11 ms.
+- Adding or subtracting at full strength now handles four pixels at once, and clear parts of soft sprites are skipped.
+  AM2R's light mask is kept at half size on each side, which is not a bug fix but a trade-off: the soft lights lose
+  very little, and in the dark rooms of its last areas a frame went from about 28 ms to about 23 ms before this
+  change, with the half-size mask saving about 3 ms more in a test without a player.
 ### RG35XX support
 - A fixed 320x240 game window, doubled to the 640x480 screen in 16-bit color.
 - Button input and volume keys.

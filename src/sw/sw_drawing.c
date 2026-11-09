@@ -867,7 +867,7 @@ bool swrSwitchToSurface(Renderer* renderer, int32_t targetSurfaceId, bool restor
     swr->viewY = swr->portY = 0;
     swr->maxX = swr->viewW = swr->portW = surface->width;
     swr->maxY = swr->viewH = swr->portH = surface->height;
-    swr->scaleX = swr->scaleY = 1.0f;
+    swr->scaleX = swr->scaleY = 1.0f / swr->surfaces[targetSurfaceId]->downscale;
     
     
     return true;
@@ -1076,12 +1076,22 @@ void swrDrawSpriteQuarterTurn(
         if (count <= SW_NEON_ROW_MAX)
         {
             static uintpixel_t row[SW_NEON_ROW_MAX];
-            for (int i = 0; i < count; i++, pFp += pStepFp)
+            int32_t pLastFp = pFp + pStepFp * (count - 1);
+            if (stride == 1 && (pFp >> 16) >= 0 && (pFp >> 16) <= pMax && (pLastFp >> 16) >= 0 && (pLastFp >> 16) <= pMax)
             {
-                int p = pFp >> 16;
-                if (p < 0) p = 0;
-                if (p > pMax) p = pMax;
-                row[i] = base[p * stride];
+                // The usual case: the whole row is inside the texture, so no pixel needs its own check.
+                for (int i = 0; i < count; i++, pFp += pStepFp)
+                    row[i] = base[pFp >> 16];
+            }
+            else
+            {
+                for (int i = 0; i < count; i++, pFp += pStepFp)
+                {
+                    int p = pFp >> 16;
+                    if (p < 0) p = 0;
+                    if (p > pMax) p = pMax;
+                    row[i] = base[p * stride];
+                }
             }
             swrBlendRowNeon(dst, row, count, tint, srcalpha, invalpha);
             continue;

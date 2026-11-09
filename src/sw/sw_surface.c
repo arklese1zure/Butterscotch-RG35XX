@@ -6,6 +6,7 @@ SWSurface* swrCreateSurface(int width, int height)
     SWSurface* surf = (SWSurface*) safeMalloc(sizeof(SWSurface));
     surf->texture = swrCreateTexture(NULL, width, height);
     surf->shadowTexture = NULL;
+    surf->downscale = 1;
     return surf;
 }
 

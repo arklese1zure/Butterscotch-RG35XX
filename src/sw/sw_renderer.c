@@ -248,7 +248,8 @@ static void SWRenderer_drawSprite(Renderer* renderer, int32_t tpagIndex, float x
     
     // Exact quarter turns, and unrotated sprites with a fractional scale, can share edges with each other.
     int quarterTurns = swrQuarterTurns(angleDeg);
-    if (quarterTurns >= 0 && (quarterTurns != 0 || !swrIsWhole(xscale) || !swrIsWhole(yscale)))
+    bool shrunkTarget = swr->drawingToSurface && swr->scaleX != 1.0f;
+    if (quarterTurns >= 0 && (quarterTurns != 0 || shrunkTarget || !swrIsWhole(xscale) || !swrIsWhole(yscale)))
     {
         float a0 = (tpag->targetX - originX) * xscale;
         float b0 = (tpag->targetY - originY) * yscale;
@@ -704,6 +705,8 @@ static void SWRenderer_gpuSetFog(Renderer* renderer, bool enable, uint32_t color
 
 // Test hook: when non-zero, surface activity is written to the log.
 int swrTraceSurfaces = 0;
+// Set just before creating a surface that can be kept at half size without the game noticing.
+bool swrNextSurfaceHalfSize = false;
 
 static int32_t SWRenderer_createSurface(Renderer* renderer, int32_t width, int32_t height)
 {
@@ -734,7 +737,10 @@ static int32_t SWRenderer_createSurface(Renderer* renderer, int32_t width, int32
         return slot;
     }
     
-    swr->surfaces[slot] = swrCreateSurface(width, height);
+    bool halfSize = swrNextSurfaceHalfSize;
+    swrNextSurfaceHalfSize = false;
+    swr->surfaces[slot] = swrCreateSurface(halfSize ? width / 2 : width, halfSize ? height / 2 : height);
+    if (halfSize) swr->surfaces[slot]->downscale = 2;
     if (getenv("AM2R_TRACE") != nullptr) logInfo("TRACE surface_create id=%d %dx%d\n", slot, width, height);
     return slot;
 }
@@ -764,7 +770,7 @@ static float SWRenderer_getSurfaceWidth(Renderer* renderer, int32_t surfaceID)
     if (surfaceID < 0 || (size_t) surfaceID >= swr->surfaceCount || swr->surfaces[surfaceID] == NULL)
         return 0.0f;
     
-    return (float) swr->surfaces[surfaceID]->texture->width;
+    return (float) swr->surfaces[surfaceID]->texture->width * swr->surfaces[surfaceID]->downscale;
 }
 
 static float SWRenderer_getSurfaceHeight(Renderer* renderer, int32_t surfaceID)
@@ -776,7 +782,7 @@ static float SWRenderer_getSurfaceHeight(Renderer* renderer, int32_t surfaceID)
     if (surfaceID < 0 || (size_t) surfaceID >= swr->surfaceCount || swr->surfaces[surfaceID] == NULL)
         return 0.0f;
     
-    return (float) swr->surfaces[surfaceID]->texture->height;
+    return (float) swr->surfaces[surfaceID]->texture->height * swr->surfaces[surfaceID]->downscale;
 }
 
 static void SWRenderer_drawSurface(Renderer* renderer, int32_t surfaceID,
@@ -792,6 +798,7 @@ static void SWRenderer_drawSurface(Renderer* renderer, int32_t surfaceID,
                 swr->drawingToSurface ? swr->currentSurfaceIndex : -1);
     }
     SWTexture* surface, localSurface;
+    int downscale = 1;
     if (surfaceID == APPLICATION_SURFACE_ID) {
         // Games that draw the application surface to the screen themselves. Here it already is the screen.
         if (!swr->drawingToSurface && x == 0.0f && y == 0.0f && xscale == 1.0f && yscale == 1.0f
@@ -810,21 +817,23 @@ static void SWRenderer_drawSurface(Renderer* renderer, int32_t surfaceID,
 
         swrCommitShadowWritesToSurfaceIfNeeded(swr, swr->surfaces[surfaceID]);
         surface = swr->surfaces[surfaceID]->texture;
+        downscale = swr->surfaces[surfaceID]->downscale;
     }
     
     if (srcWidth < 0) {
-        srcWidth = surface->width;
+        srcWidth = surface->width * downscale;
         swrReverseTransformSizeIfNeeded(swr, &xscale, NULL);
     }
     if (srcHeight < 0) {
-        srcHeight = surface->height;
+        srcHeight = surface->height * downscale;
         swrReverseTransformSizeIfNeeded(swr, NULL, &yscale);
     }
     
-    int sx = srcLeft;
-    int sy = srcTop;
-    int sw = srcWidth;
-    int sh = srcHeight;
+    // The game's sizes and positions are for the full surface; only the pixels it reads are fewer.
+    int sx = srcLeft / downscale;
+    int sy = srcTop / downscale;
+    int sw = srcWidth / downscale;
+    int sh = srcHeight / downscale;
     
     int tw = (int)(srcWidth * swr->scaleX);
     int th = (int)(srcHeight * swr->scaleY);

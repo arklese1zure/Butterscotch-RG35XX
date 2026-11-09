@@ -33,6 +33,8 @@ typedef struct
     SWTexture* texture;
     // upon a gpuSetColorWriteEnable change, the shadow texture is used for writing instead.
     SWTexture* shadowTexture;
+    // 2 if the texture holds only every other pixel of the surface the game asked for, otherwise 1.
+    int downscale;
 }
 SWSurface;
 

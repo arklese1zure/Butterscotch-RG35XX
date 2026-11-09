@@ -27,6 +27,16 @@ static inline uint32x4_t swrBlendFour(uint32x4_t dst, uint32x4_t src, uint8x8_t 
     return vorrq_u32(vreinterpretq_u32_u8(result), vdupq_n_u32(0xFF000000));
 }
 
+// Adds to or subtracts from four pixels at full strength. The result is solid, as with alphaBlend.
+static inline uint32x4_t swrAddSubFour(uint32x4_t dst, uint32x4_t src, bool subtract)
+{
+    const uint32x4_t alphaMask = vdupq_n_u32(0xFF000000);
+    uint8x16_t d = vreinterpretq_u8_u32(dst);
+    uint8x16_t s = vreinterpretq_u8_u32(vbicq_u32(src, alphaMask));
+    uint8x16_t result = subtract ? vqsubq_u8(d, s) : vqaddq_u8(d, s);
+    return vorrq_u32(vreinterpretq_u32_u8(result), alphaMask);
+}
+
 // alphaBlend() with one color for a row of pixels. Results can differ by a level or two out of 255, as below.
 static void swrBlendSolidRowNeon(uintpixel_t* dst, int count, uintpixel_t color, int srcalpha, int invalpha)
 {
@@ -44,6 +54,12 @@ static void swrBlendSolidRowNeon(uintpixel_t* dst, int count, uintpixel_t color,
         uint8x8_t dstFactor = vdup_n_u8((uint8_t) invalpha);
         for (; x + 4 <= count; x += 4)
             vst1q_u32(dst + x, swrBlendFour(vld1q_u32(dst + x), c, srcFactor, dstFactor));
+    }
+    else if (invalpha == 256 && (srcalpha == 256 || srcalpha == -256))
+    {
+        uint32x4_t c = vdupq_n_u32(color);
+        for (; x + 4 <= count; x += 4)
+            vst1q_u32(dst + x, swrAddSubFour(vld1q_u32(dst + x), c, srcalpha < 0));
     }
     for (; x < count; x++)
         alphaBlend(&dst[x], color, srcalpha, invalpha);
@@ -107,8 +123,45 @@ static void swrBlendRowNeon(uintpixel_t* dst, const uintpixel_t* src, int count,
         }
     }
     
+    // Adding or subtracting at full strength needs no splitting into channels either. AM2R's darkness
+    // is drawn this way, over the whole screen.
+    if (invalpha == 256 && drawAlpha == 256)
+    {
+        const uint32x4_t alphaMask = vdupq_n_u32(0xFF000000);
+        const uint8x16_t tintBytes = vreinterpretq_u8_u32(vdupq_n_u32(tintColor));
+        for (; x + 4 <= count; x += 4)
+        {
+            uint32x4_t s = vld1q_u32(src + x);
+            uint32x4_t a = vandq_u32(s, alphaMask);
+            uint32x4_t solid = vceqq_u32(a, alphaMask);
+            uint32x4_t clear = vceqq_u32(a, vdupq_n_u32(0));
+            
+            if (swrAllSet(clear))
+                continue;
+            if (!swrAllSet(vorrq_u32(solid, clear)))
+                break;
+            
+            if (tinted)
+            {
+                uint8x16_t c = vreinterpretq_u8_u32(s);
+                uint16x8_t low = vaddq_u16(vmull_u8(vget_low_u8(c), vget_low_u8(tintBytes)), round255);
+                uint16x8_t high = vaddq_u16(vmull_u8(vget_high_u8(c), vget_high_u8(tintBytes)), round255);
+                s = vreinterpretq_u32_u8(vcombine_u8(vshrn_n_u16(low, 8), vshrn_n_u16(high, 8)));
+            }
+            
+            uint32x4_t d = vld1q_u32(dst + x);
+            vst1q_u32(dst + x, vbslq_u32(solid, swrAddSubFour(d, s, subtract), d));
+        }
+    }
+    
     for (; x + 8 <= count; x += 8)
     {
+        // Soft sprites like lights have large clear areas. Checking first avoids reading and rewriting them.
+        uint32x4_t firstFour = vld1q_u32(src + x), lastFour = vld1q_u32(src + x + 4);
+        uint32x4_t anyAlpha = vandq_u32(vorrq_u32(firstFour, lastFour), vdupq_n_u32(0xFF000000));
+        if (swrAllSet(vceqq_u32(anyAlpha, vdupq_n_u32(0))))
+            continue;
+        
         uint8x8x4_t s = vld4_u8((const uint8_t*) (src + x));
         uint8x8x4_t d = vld4_u8((const uint8_t*) (dst + x));
         uint8x8_t mask = vtst_u8(s.val[3], s.val[3]);

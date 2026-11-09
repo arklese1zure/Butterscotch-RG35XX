@@ -12519,11 +12519,20 @@ static RValue builtin_merge_color(MAYBE_UNUSED VMContext* ctx, RValue* args, MAY
     return RValue_makeReal((GMLReal) Color_lerp(col1, col2, amount));
 }
 
+#ifdef ENABLE_SW_RENDERER
+extern bool swrNextSurfaceHalfSize;
+#endif
+
 static RValue builtin_surface_create(VMContext* ctx, RValue* args, MAYBE_UNUSED int32_t argCount) {
     int32_t width = (int32_t) RValue_toReal(args[0]);
     int32_t height = (int32_t) RValue_toReal(args[1]);
     Runner* runner = ctx->runner;
     if (runner->renderer != nullptr) {
+#ifdef ENABLE_SW_RENDERER
+        // AM2R's darkness repaints this soft light mask every frame, which costs several milliseconds at full size.
+        if (ctx->currentCodeName != nullptr && strcmp(ctx->currentCodeName, "gml_Object_oLightEngine_Other_10") == 0)
+            swrNextSurfaceHalfSize = true;
+#endif
         int32_t surfaceId = Renderer_createSurface(runner->renderer, width,height);
         return RValue_makeReal(surfaceId);
     }
