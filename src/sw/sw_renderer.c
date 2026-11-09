@@ -246,6 +246,18 @@ static void SWRenderer_drawSprite(Renderer* renderer, int32_t tpagIndex, float x
 
     SWTexture* texture = swr->textures[pageId];
     
+    // Exact quarter turns, and unrotated sprites with a fractional scale, can share edges with each other.
+    int quarterTurns = swrQuarterTurns(angleDeg);
+    if (quarterTurns >= 0 && (quarterTurns != 0 || !swrIsWhole(xscale) || !swrIsWhole(yscale)))
+    {
+        float a0 = (tpag->targetX - originX) * xscale;
+        float b0 = (tpag->targetY - originY) * yscale;
+        float a1 = (tpag->targetX + tpag->targetWidth - originX) * xscale;
+        float b1 = (tpag->targetY + tpag->targetHeight - originY) * yscale;
+        swrDrawSpriteQuarterTurn(renderer, x, y, a0, b0, a1, b1, texture, sx, sy, sw, sh, color, alpha, quarterTurns);
+        return;
+    }
+    
     if (UNLIKELY(swrMustRotate(angleDeg)))
     {
         float pivotX = (x - dx) * swrSgn(xscale);

@@ -25,6 +25,21 @@ FORCE_INLINE int swrCeiling(float x)
     return i + (x > (float) i);
 }
 
+// How many quarter turns (0 to 3) this angle is, or -1 if it isn't a whole number of them.
+FORCE_INLINE int swrQuarterTurns(float angleDeg)
+{
+    float turns = angleDeg / 90.0f;
+    float nearest = floorf(turns + 0.5f);
+    if (fabsf(turns - nearest) > 0.0001f) return -1;
+    int result = ((int) nearest) % 4;
+    return result < 0 ? result + 4 : result;
+}
+
+FORCE_INLINE bool swrIsWhole(float value)
+{
+    return fabsf(value - floorf(value + 0.5f)) < 0.0001f;
+}
+
 // Checks if the "rotate" version of the sprite drawing routine should be used.
 FORCE_INLINE bool swrMustRotate(float angleDeg)
 {

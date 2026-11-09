@@ -989,6 +989,114 @@ void swrDrawSprite(
     );
 }
 
+// Draws a sprite turned by a whole number of quarter turns, which is an axis-aligned scaled blit.
+// (a0, b0)-(a1, b1) is the texture page item's box relative to the sprite's origin, already scaled by
+// the sprite's own scale: a negative scale gives a1 < a0, which mirrors it.
+// Edges are rounded the way a GPU rounds them, so sprites that share an edge (AM2R draws its large
+// explosions as four quarters around one point) meet with no gap and no overlap.
+void swrDrawSpriteQuarterTurn(
+    Renderer* renderer, float x, float y, float a0, float b0, float a1, float b1,
+    SWTexture* texture, int sx, int sy, int sw, int sh,
+    uint32_t tintColor, float alpha, int quarterTurns
+)
+{
+    SWRenderer* swr = (SWRenderer*) renderer;
+    swrFlushPendingFill(swr);
+
+    if (a0 == a1 || b0 == b1 || sw <= 0 || sh <= 0) return;
+
+    swrTransformPosIfNeeded(swr, &x, &y);
+
+    // On screen, x follows p and y follows q, each with a sign.
+    bool swapped = (quarterTurns & 1) != 0;
+    double p0 = swapped ? b0 : a0, p1 = swapped ? b1 : a1;
+    double q0 = swapped ? a0 : b0, q1 = swapped ? a1 : b1;
+    double signedScaleX = (quarterTurns >= 2 ? -1.0 : 1.0) * swr->scaleX;
+    double signedScaleY = (quarterTurns == 1 || quarterTurns == 2 ? -1.0 : 1.0) * swr->scaleY;
+
+    double xa = x + signedScaleX * p0, xb = x + signedScaleX * p1;
+    double ya = y + signedScaleY * q0, yb = y + signedScaleY * q1;
+
+    // A pixel is covered if its center is inside the box.
+    int minX = (int) ceil((xa < xb ? xa : xb) - 0.5);
+    int maxX = (int) ceil((xa < xb ? xb : xa) - 0.5);
+    int minY = (int) ceil((ya < yb ? ya : yb) - 0.5);
+    int maxY = (int) ceil((ya < yb ? yb : ya) - 0.5);
+
+    if (minX < swr->portX) minX = swr->portX;
+    if (minY < swr->portY) minY = swr->portY;
+    if (maxX > swr->portX + swr->portW) maxX = swr->portX + swr->portW;
+    if (maxY > swr->portY + swr->portH) maxY = swr->portY + swr->portH;
+    if (minX >= maxX || minY >= maxY) return;
+
+    // Texture coordinate at the center of a screen pixel: start + step * pixel.
+    double pLen = swapped ? sh : sw, qLen = swapped ? sw : sh;
+    double pStep = pLen / ((p1 - p0) * signedScaleX);
+    double qStep = qLen / ((q1 - q0) * signedScaleY);
+    double pStart = ((0.5 - x) / signedScaleX - p0) / (p1 - p0) * pLen;
+    double qStart = ((0.5 - y) / signedScaleY - q0) / (q1 - q0) * qLen;
+
+    const int32_t fpOne = 1 << 16;
+    int32_t pStepFp = (int32_t) (pStep * fpOne);
+    int32_t pFirstFp = (int32_t) ((pStart + pStep * minX) * fpOne);
+
+    uintpixel_t tint = swrConvertPixel(tintColor);
+    int ialpha = swrIntAlpha(alpha);
+    int srcalpha = swrCalcSrcAlpha(swr, ialpha);
+    int invalpha = swrCalcDstAlpha(swr, ialpha);
+
+    int count = maxX - minX;
+    int texWidth = texture->width;
+    int pMax = (int) pLen - 1;
+    int qMax = (int) qLen - 1;
+
+    for (int cy = minY; cy < maxY; cy++)
+    {
+        uintpixel_t* dst = &swr->fb[cy * swr->fbPitch + minX];
+        int q = (int) floor(qStart + qStep * cy);
+        if (q < 0) q = 0;
+        if (q > qMax) q = qMax;
+
+        // Reading along a texture row, or down a texture column for a sideways sprite.
+        const uintpixel_t* base;
+        int stride;
+        if (swapped)
+        {
+            base = &texture->buffer[sy * texWidth + sx + q];
+            stride = texWidth;
+        }
+        else
+        {
+            base = &texture->buffer[(sy + q) * texWidth + sx];
+            stride = 1;
+        }
+
+        int32_t pFp = pFirstFp;
+#ifdef SW_NEON_ROWS
+        if (count <= SW_NEON_ROW_MAX)
+        {
+            static uintpixel_t row[SW_NEON_ROW_MAX];
+            for (int i = 0; i < count; i++, pFp += pStepFp)
+            {
+                int p = pFp >> 16;
+                if (p < 0) p = 0;
+                if (p > pMax) p = pMax;
+                row[i] = base[p * stride];
+            }
+            swrBlendRowNeon(dst, row, count, tint, srcalpha, invalpha);
+            continue;
+        }
+#endif
+        for (int i = 0; i < count; i++, pFp += pStepFp)
+        {
+            int p = pFp >> 16;
+            if (p < 0) p = 0;
+            if (p > pMax) p = pMax;
+            swrBlendTexel(&dst[i], base[p * stride], tint, srcalpha, invalpha);
+        }
+    }
+}
+
 void swrDrawSpriteRotated(
     Renderer* renderer, float dx, float dy, float dw, float dh,
     SWTexture* texture, int sx, int sy, int sw, int sh,

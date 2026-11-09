@@ -38,6 +38,12 @@
 - Added a faster path for sprites with no tint or blending.
 - Sprite rows are now tinted and blended with NEON, 8 pixels at a time, and untinted solid or clear rows
   4 at a time without splitting color channels. Rectangles are blended with NEON too.
+- Sprites rotated by exact quarter turns were placed up to a pixel apart, because their position was rounded
+  but their rotation center wasn't. In AM2R, the super bomb and battery explosions, drawn as four quarters
+  around one point, showed a cross-shaped line. Quarter turns and fractionally scaled sprites now have their
+  own path, which rounds edges like a GPU and is much faster than the general rotated one.
+- Pixel-precise collisions worked out a sine and cosine for every pixel they tested, now once per pair of
+  instances. Together with the fix above, the worst stretch of a super bomb went from about 29 ms a frame to 11 ms.
 ### RG35XX support
 - A fixed 320x240 game window, doubled to the 640x480 screen in 16-bit color.
 - Button input and volume keys.

@@ -384,7 +384,8 @@ static inline bool Collision_lineOverlapsInstance(Runner* runner, Instance* inst
 // Tests if world point (px, py) is inside the given instance's collision shape.
 // The point is inverse-transformed into sprite-local coords (translation, rotation, inverse scale, origin) and bounds-checked against the full sprite texture [0, spr.width) x [0, spr.height).
 // Precise sprites (sepMasks == 1) additionally require the mask bit at the resulting local pixel to be set.
-static inline bool Collision_pointInInstance(Sprite* spr, Instance* inst, GMLReal px, GMLReal py) {
+// cs and sn are the cosine and sine of the instance's angle, so that callers testing many points work them out once.
+static inline bool Collision_pointInInstanceRotated(Sprite* spr, Instance* inst, GMLReal cs, GMLReal sn, GMLReal px, GMLReal py) {
     if (spr == nullptr) return false;
 
     // Reject degenerate scales to avoid divide-by-zero.
@@ -397,9 +398,6 @@ static inline bool Collision_pointInInstance(Sprite* spr, Instance* inst, GMLRea
 
     // Inverse of CW rotation is standard CCW rotation (positive angle)
     if (GMLReal_fabs(inst->imageAngle) > 0.0001) {
-        GMLReal rad = inst->imageAngle * M_PI / 180.0;
-        GMLReal cs = GMLReal_cos(rad);
-        GMLReal sn = GMLReal_sin(rad);
         GMLReal rx = cs * dx - sn * dy;
         GMLReal ry = sn * dx + cs * dy;
         dx = rx;
@@ -430,6 +428,11 @@ static inline bool Collision_pointInInstance(Sprite* spr, Instance* inst, GMLRea
     }
 
     return true;
+}
+
+static inline bool Collision_pointInInstance(Sprite* spr, Instance* inst, GMLReal px, GMLReal py) {
+    GMLReal rad = inst->imageAngle * M_PI / 180.0;
+    return Collision_pointInInstanceRotated(spr, inst, GMLReal_cos(rad), GMLReal_sin(rad), px, py);
 }
 
 // Returns true if the two instances' collision shapes overlap.
@@ -524,13 +527,18 @@ static inline bool Collision_instancesOverlapPrecise(Runner* runner, Instance* a
         sampleOffset = 0.5;
     }
 
+    GMLReal radA = a->imageAngle * M_PI / 180.0;
+    GMLReal radB = b->imageAngle * M_PI / 180.0;
+    GMLReal csA = GMLReal_cos(radA), snA = GMLReal_sin(radA);
+    GMLReal csB = GMLReal_cos(radB), snB = GMLReal_sin(radB);
+
     for (int32_t py = startY; (compatMode ? py <= endY : py < endY); py++) {
         for (int32_t px = startX; (compatMode ? px <= endX : px < endX); px++) {
             GMLReal wpx = (GMLReal) px + sampleOffset;
             GMLReal wpy = (GMLReal) py + sampleOffset;
 
-            if (!Collision_pointInInstance(sprA, a, wpx, wpy)) continue;
-            if (!Collision_pointInInstance(sprB, b, wpx, wpy)) continue;
+            if (!Collision_pointInInstanceRotated(sprA, a, csA, snA, wpx, wpy)) continue;
+            if (!Collision_pointInInstanceRotated(sprB, b, csB, snB, wpx, wpy)) continue;
             return true;
         }
     }
