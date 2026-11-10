@@ -2636,7 +2636,8 @@ Runner* Runner_create(DataWin* dataWin, VMContext* vm, Renderer* renderer, FileS
     {
     repeat(shlen(vm->builtinMap), i) {
         bool isRegistered = shgeti(vm->codeIndexByName, vm->builtinMap[i].key) != -1;
-        if (isRegistered) {
+        // Before GM:S 2 the script wins, see VM_create.
+        if (isRegistered && DataWin_isVersionAtLeast(dataWin, 2, 0, 0, 0)) {
             logWarn("Runner: Builtin function %s has the same name as a GML script! The script may be a compatibility script provided by GM:S 2+, and the game may have issues due to the builtin overriding it!\n", vm->builtinMap[i].key);
         }
     }

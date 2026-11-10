@@ -16,6 +16,9 @@
 - With `--load-type map-file`, every animation frame of a sprite used the collision mask of its first frame.
   In AM2R, missile explosions stayed tiny and couldn't push the batteries, and super missiles had the wrong hitbox.
 - `SDL_JoystickName` was called every frame on SDL 1.2. On this device it dropped the game to about 9 fps.
+- A built-in function took priority over a game's own script of the same name, even in games older than
+  GameMaker Studio 2, which can't have meant the built-in. In AM2R, `string_split` returned a list instead of
+  text, so button hints in the pause screen just said "0".
 ### Fixes in the software renderer
 - Added the missing `gpuSetTexFilter`, without which no game could start.
 - `drawSpritePart` took integers where the renderer interface passes floats, which crashed tile drawing.
@@ -55,6 +58,8 @@
 ### RG35XX support
 - A fixed 320x240 game window, doubled to the 640x480 screen in 16-bit color.
 - Button input and volume keys.
+- AM2R's button hints and keyboard settings show the device's button names instead of keyboard keys. Its
+  Joypad Settings page is hidden, since the device's buttons reach the game as keys and the page couldn't do anything.
 - A native 640x480 mode through `RG35XX_FULL_RES`, for games with that window size.
 - Triple buffering through `AM2R_TRIPLEBUF`, so a slow frame doesn't halve the frame rate.
 - The log is buffered, since a write to the SD card for every line could stall a frame.

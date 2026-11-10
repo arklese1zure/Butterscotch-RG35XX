@@ -150,6 +150,10 @@ bool platformGetScaledWindowSize(int32_t* outW, int32_t* outH);
 void platformSetWindowSize(int32_t width, int32_t height);
 void platformSetWindowTitle(const char* title);
 void platformSleepUntil(uint64_t time);
+#ifdef TARGET_RG35XX
+// The name of the device button that sends this key, or NULL if none does.
+const char* platformGetButtonLabel(int32_t gmlKey);
+#endif
 
 extern InputRecording *globalInputRecording;
 

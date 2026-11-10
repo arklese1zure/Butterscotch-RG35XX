@@ -3686,11 +3686,20 @@ VMContext* VM_create(DataWin* dataWin) {
     repeat(dataWin->func.functionCount, i) {
         const char* name = dataWin->func.functions[i].name;
         BuiltinFunc builtin = VM_findBuiltin(ctx, name);
+        ptrdiff_t mapIdx = shgeti(ctx->codeIndexByName, (char*) name);
+        // Before GM:S 2, a script sharing a built-in's name is the game's own function, written before that
+        // built-in existed: AM2R's string_split takes other arguments and returns a string, not an array.
+        // From GM:S 2 on it may be a compatibility script, which the built-in can stand in for.
+        if (builtin != nullptr && mapIdx >= 0 && !DataWin_isVersionAtLeast(dataWin, 2, 0, 0, 0)) {
+#ifdef TARGET_RG35XX
+            if (strcmp(name, "get_keyname") != 0 && strcmp(name, "get_text") != 0) // deliberately replaced for AM2R
+#endif
+            builtin = nullptr;
+        }
         ctx->funcCallCache[i].builtin = (void*) builtin;
         if (builtin != nullptr) {
             ctx->funcCallCache[i].scriptCodeIndex = -1;
         } else {
-            ptrdiff_t mapIdx = shgeti(ctx->codeIndexByName, (char*) name);
             ctx->funcCallCache[i].scriptCodeIndex = (mapIdx >= 0) ? ctx->codeIndexByName[mapIdx].value : -1;
         }
     }

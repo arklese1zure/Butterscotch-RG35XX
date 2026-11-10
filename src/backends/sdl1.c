@@ -62,26 +62,34 @@ typedef struct {
     RgInputKind kind;
     int index; // button number, hat mask or axis number
     int32_t gmlKey; // AM2R's default key for this control, as in its config.ini
+    const char* label; // the button's name on the device, shown in AM2R's hints and keyboard settings
     bool down;
 } RgInputBinding;
 
 static RgInputBinding rgBindings[] = {
-    { RG_HAT, SDL_HAT_UP, VK_UP, false },
-    { RG_HAT, SDL_HAT_DOWN, VK_DOWN, false },
-    { RG_HAT, SDL_HAT_LEFT, VK_LEFT, false },
-    { RG_HAT, SDL_HAT_RIGHT, VK_RIGHT, false },
-    { RG_BUTTON, 0, 'Z', false },         // A: jump, menu OK
-    { RG_BUTTON, 1, 'X', false },         // B: fire, menu cancel
-    { RG_BUTTON, 3, 'X', false },         // Y: fire
-    { RG_BUTTON, 2, VK_CONTROL, false },  // X: morph
-    { RG_BUTTON, 5, VK_SHIFT, false },    // L1: hold to aim diagonally, with up or down
-    { RG_BUTTON, 6, 'A', false },         // R1: hold to arm missiles
-    { RG_AXIS, RG35XX_AXIS_L2, 'C', false },         // L2: second aim button, unused in one-button aiming
-    { RG_AXIS, RG35XX_AXIS_R2, VK_SPACE, false },    // R2: aim lock
-    { RG_BUTTON, 7, 'S', false },         // Select: switch weapon
-    { RG_BUTTON, RG35XX_BTN_START, VK_ENTER, false },
-    { RG_BUTTON, RG35XX_BTN_MENU, VK_ESCAPE, false },
+    { RG_HAT, SDL_HAT_UP, VK_UP, "Up", false },
+    { RG_HAT, SDL_HAT_DOWN, VK_DOWN, "Down", false },
+    { RG_HAT, SDL_HAT_LEFT, VK_LEFT, "Left", false },
+    { RG_HAT, SDL_HAT_RIGHT, VK_RIGHT, "Right", false },
+    { RG_BUTTON, 0, 'Z', "A", false },    // A: jump, menu OK
+    { RG_BUTTON, 1, 'X', "B", false },    // B: fire, menu cancel
+    { RG_BUTTON, 3, 'X', "Y", false },    // Y: fire (same key as B, so hints say B)
+    { RG_BUTTON, 2, VK_CONTROL, "X", false },  // X: morph
+    { RG_BUTTON, 5, VK_SHIFT, "L1", false },   // L1: hold to aim diagonally, with up or down
+    { RG_BUTTON, 6, 'A', "R1", false },   // R1: hold to arm missiles
+    { RG_AXIS, RG35XX_AXIS_L2, 'C', "L2", false }, // L2: second aim button, unused in one-button aiming
+    { RG_AXIS, RG35XX_AXIS_R2, VK_SPACE, "R2", false }, // R2: aim lock
+    { RG_BUTTON, 7, 'S', "Select", false },   // Select: switch weapon
+    { RG_BUTTON, RG35XX_BTN_START, VK_ENTER, "Start", false },
+    { RG_BUTTON, RG35XX_BTN_MENU, VK_ESCAPE, "Menu", false },
 };
+
+const char* platformGetButtonLabel(int32_t gmlKey) {
+    for (size_t i = 0; i < sizeof(rgBindings) / sizeof(rgBindings[0]); i++) {
+        if (rgBindings[i].gmlKey == gmlKey) return rgBindings[i].label;
+    }
+    return NULL;
+}
 #endif
 
 static void parseMappingField(GamepadMapping* mapping, const char* key, const char* val) {

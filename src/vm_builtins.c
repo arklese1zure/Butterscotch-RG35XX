@@ -8144,7 +8144,14 @@ static RValue builtin_gamepad_get_device_count(VMContext* ctx, RValue* args, int
     return RValue_makeReal((GMLReal) RunnerGamepad_getDeviceCount(runner->gamepads));
 }
 
+#ifdef TARGET_RG35XX
+static bool rg35xxHideControllerFromGame(VMContext* ctx);
+#endif
+
 static RValue builtin_gamepad_is_connected(VMContext* ctx, RValue* args, int32_t argCount) {
+#ifdef TARGET_RG35XX
+    if (rg35xxHideControllerFromGame(ctx)) return RValue_makeBool(false);
+#endif
     Runner* runner = ctx->runner;
     if (runner == NULL || runner->gamepads == NULL) return RValue_makeBool(false);
     int32_t device = RValue_toInt32(args[0]);
@@ -9121,8 +9128,19 @@ static RValue builtinMouseWheelDown(VMContext* ctx, MAYBE_UNUSED RValue* args, M
 }
 
 // ===[ Joystick Functions ]===
+#ifdef TARGET_RG35XX
+// AM2R gets the device's buttons as keys (see rgBindings in sdl1.c), so it has no controller to configure.
+// Telling it so makes its Controls menu drop the Joypad page. Undertale keeps seeing the joystick.
+static bool rg35xxHideControllerFromGame(VMContext* ctx) {
+    return shgeti(ctx->codeIndexByName, "check_xjoybtn") >= 0;
+}
+#endif
+
 static RValue builtin_joystick_exists(VMContext* ctx, RValue* args, int32_t argCount) {
     REQUIRE_ARGC_AT_LEAST("joystick_exists", 1, RValue_makeBool(false));
+#ifdef TARGET_RG35XX
+    if (rg35xxHideControllerFromGame(ctx)) return RValue_makeBool(false);
+#endif
     Runner* runner = ctx->runner;
     if (runner == NULL || runner->gamepads == NULL) return RValue_makeBool(false);
     int32_t id = RValue_toInt32(args[0]) - 1;
@@ -13276,6 +13294,29 @@ static RValue builtin_display_get_height(MAYBE_UNUSED VMContext* ctx, MAYBE_UNUS
     int32_t w = 0, h = 0;
     platformGetWindowSize(&w, &h);
     return RValue_makeReal((GMLReal) h);
+}
+
+// Replaces AM2R's script of the same name. The game thinks the buttons are keyboard keys, so its hints
+// would otherwise say Z and X where the device says A and B.
+static RValue builtin_get_keyname(VMContext* ctx, RValue* args, int32_t argCount) {
+    REQUIRE_ARGC_AT_LEAST("get_keyname", 1, RValue_makeOwnedString(safeStrdup("")));
+    const char* label = platformGetButtonLabel(RValue_toInt32(args[0]));
+    if (label != NULL) return RValue_makeOwnedString(safeStrdup(label));
+    ptrdiff_t idx = shgeti(ctx->codeIndexByName, "get_keyname");
+    if (0 > idx) return RValue_makeOwnedString(safeStrdup(""));
+    return VM_callCodeIndex(ctx, ctx->codeIndexByName[idx].value, args, argCount);
+}
+
+// Replaces AM2R's script of the same name, to blank the "No Joypad Detected" row of its Controls menu.
+static RValue builtin_get_text(VMContext* ctx, RValue* args, int32_t argCount) {
+    REQUIRE_ARGC_AT_LEAST("get_text", 2, RValue_makeOwnedString(safeStrdup("")));
+    // The game calls this as get_text(section, key).
+    if (args[1].type == RVALUE_STRING && args[1].string != NULL && strcmp(args[1].string, "NoJoypad") == 0) {
+        return RValue_makeOwnedString(safeStrdup(""));
+    }
+    ptrdiff_t idx = shgeti(ctx->codeIndexByName, "get_text");
+    if (0 > idx) return RValue_makeOwnedString(safeStrdup(""));
+    return VM_callCodeIndex(ctx, ctx->codeIndexByName[idx].value, args, argCount);
 }
 #else
 STUB_RETURN_VALUE(display_get_width, 640.0)
@@ -23954,6 +23995,10 @@ void VMBuiltins_registerAll(VMContext* ctx) {
 
     // Display
     VM_registerBuiltin(ctx, "display_get_width", builtin_display_get_width);
+#ifdef TARGET_RG35XX
+    VM_registerBuiltin(ctx, "get_keyname", builtin_get_keyname);
+    VM_registerBuiltin(ctx, "get_text", builtin_get_text);
+#endif
     VM_registerBuiltin(ctx, "display_get_height", builtin_display_get_height);
     VM_registerBuiltin(ctx, "display_get_gui_width", builtin_display_get_gui_width);
     VM_registerBuiltin(ctx, "display_get_gui_height", builtin_display_get_gui_height);
