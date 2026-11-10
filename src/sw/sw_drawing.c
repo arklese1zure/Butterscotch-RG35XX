@@ -487,6 +487,9 @@ static void swrDrawSpriteInternal(
     else
     {
         fixedp_t ys2 = iys2;
+#ifdef SW_NEON_ROWS
+        const uintpixel_t* scaledRowSource = nullptr; // a sprite stretched tall repeats each row many times
+#endif
         for (int y = 0, ys = iys; y < dh; y++, ys += oys, ys2 += oys2)
         {
             uintpixel_t* dstline;
@@ -502,8 +505,12 @@ static void swrDrawSpriteInternal(
             if (dw <= SW_NEON_ROW_MAX)
             {
                 static uintpixel_t scaledRow[SW_NEON_ROW_MAX];
-                for (int x = 0; x < dw; x++, xs2 += oxs2)
-                    scaledRow[x] = srcline[(int)(xs2 >> fp_prec)];
+                if (srcline != scaledRowSource)
+                {
+                    for (int x = 0; x < dw; x++, xs2 += oxs2)
+                        scaledRow[x] = srcline[(int)(xs2 >> fp_prec)];
+                    scaledRowSource = srcline;
+                }
                 swrBlendRowNeon(dstline, scaledRow, dw, tintColor, srcalpha, invalpha);
                 continue;
             }
@@ -955,13 +962,32 @@ void swrFillRectangleColor(Renderer* renderer, float x1, float y1, float x2, flo
     if (yd < 0) { y1i = y2i; yd = -yd; }
     if (xd <= 0 || yd <= 0) return;
     
-    // TODO: blending vertically
+#if PIXEL_SIZE == 32
+    // GameMaker's order is clockwise from the top left: 1 and 2 along the top, 3 at the bottom right, 4 at the bottom left.
+    Pixel32ARGB tl, tr, br, bl;
+    tl.l = pxcolor1;
+    tr.l = pxcolor2;
+    br.l = pxcolor3;
+    bl.l = pxcolor4;
+    
+    for (int y = 0; y <= yd; y++) {
+        Pixel32ARGB left = tl, right = tr;
+        left.p.r = tl.p.r + ((int) bl.p.r - tl.p.r) * y / yd;
+        left.p.g = tl.p.g + ((int) bl.p.g - tl.p.g) * y / yd;
+        left.p.b = tl.p.b + ((int) bl.p.b - tl.p.b) * y / yd;
+        right.p.r = tr.p.r + ((int) br.p.r - tr.p.r) * y / yd;
+        right.p.g = tr.p.g + ((int) br.p.g - tr.p.g) * y / yd;
+        right.p.b = tr.p.b + ((int) br.p.b - tr.p.b) * y / yd;
+        swrDrawHLineInt(renderer, x1i, y1i + y, xd, left.l, right.l, alphaInt);
+    }
+#else
     (void) pxcolor3;
     (void) pxcolor4;
     
     for (int y = 0; y <= yd; y++) {
         swrDrawHLineInt(renderer, x1i, y1i + y, xd, pxcolor1, pxcolor2, alphaInt);
     }
+#endif
 }
 
 void swrDrawSprite(

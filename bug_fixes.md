@@ -48,6 +48,10 @@
   AM2R's light mask is kept at half size on each side, which is not a bug fix but a trade-off: the soft lights lose
   very little, and in the dark rooms of its last areas a frame went from about 28 ms to about 23 ms before this
   change, with the half-size mask saving about 3 ms more in a test without a player.
+- Gradient rectangles only blended left to right, not top to bottom. In AM2R, the glow over the lava was a flat
+  band with a hard edge near the bottom of the room, and the fade above the lava was missing.
+- Adding and subtracting at partial strength now handles four pixels at once too, and a sprite stretched tall
+  doesn't rebuild the same row over and over. Together they saved about 1 ms a frame in a lava room.
 ### RG35XX support
 - A fixed 320x240 game window, doubled to the 640x480 screen in 16-bit color.
 - Button input and volume keys.

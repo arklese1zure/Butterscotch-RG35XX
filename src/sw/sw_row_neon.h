@@ -55,11 +55,21 @@ static void swrBlendSolidRowNeon(uintpixel_t* dst, int count, uintpixel_t color,
         for (; x + 4 <= count; x += 4)
             vst1q_u32(dst + x, swrBlendFour(vld1q_u32(dst + x), c, srcFactor, dstFactor));
     }
-    else if (invalpha == 256 && (srcalpha == 256 || srcalpha == -256))
+    else if (invalpha == 256 && srcalpha != 0)
     {
-        uint32x4_t c = vdupq_n_u32(color);
+        // With the destination kept whole, the amount to add or subtract is the same for every pixel of the row.
+        const bool subtract = srcalpha < 0;
+        const int strength = subtract ? -srcalpha : srcalpha;
+        const int round = subtract ? 255 : 0; // alphaBlend's shift rounds negative sums down
+        Pixel32ARGB in, amount;
+        in.l = color;
+        amount.l = 0;
+        amount.p.r = (in.p.r * strength + round) >> 8;
+        amount.p.g = (in.p.g * strength + round) >> 8;
+        amount.p.b = (in.p.b * strength + round) >> 8;
+        uint32x4_t c = vdupq_n_u32(amount.l);
         for (; x + 4 <= count; x += 4)
-            vst1q_u32(dst + x, swrAddSubFour(vld1q_u32(dst + x), c, srcalpha < 0));
+            vst1q_u32(dst + x, swrAddSubFour(vld1q_u32(dst + x), c, subtract));
     }
     for (; x < count; x++)
         alphaBlend(&dst[x], color, srcalpha, invalpha);
@@ -123,12 +133,13 @@ static void swrBlendRowNeon(uintpixel_t* dst, const uintpixel_t* src, int count,
         }
     }
     
-    // Adding or subtracting at full strength needs no splitting into channels either. AM2R's darkness
-    // is drawn this way, over the whole screen.
-    if (invalpha == 256 && drawAlpha == 256)
+    // Adding or subtracting needs no splitting into channels either. AM2R's darkness is drawn this way,
+    // over the whole screen, and so is the body of its lava.
+    if (invalpha == 256 && drawAlpha > 0)
     {
         const uint32x4_t alphaMask = vdupq_n_u32(0xFF000000);
         const uint8x16_t tintBytes = vreinterpretq_u8_u32(vdupq_n_u32(tintColor));
+        const uint8x8_t strength = vdup_n_u8((uint8_t) drawAlpha); // used only below 256
         for (; x + 4 <= count; x += 4)
         {
             uint32x4_t s = vld1q_u32(src + x);
@@ -147,6 +158,13 @@ static void swrBlendRowNeon(uintpixel_t* dst, const uintpixel_t* src, int count,
                 uint16x8_t low = vaddq_u16(vmull_u8(vget_low_u8(c), vget_low_u8(tintBytes)), round255);
                 uint16x8_t high = vaddq_u16(vmull_u8(vget_high_u8(c), vget_high_u8(tintBytes)), round255);
                 s = vreinterpretq_u32_u8(vcombine_u8(vshrn_n_u16(low, 8), vshrn_n_u16(high, 8)));
+            }
+            
+            if (drawAlpha < 256)
+            {
+                uint8x16_t c = vreinterpretq_u8_u32(s);
+                s = vreinterpretq_u32_u8(vcombine_u8(vshrn_n_u16(vmull_u8(vget_low_u8(c), strength), 8),
+                                                     vshrn_n_u16(vmull_u8(vget_high_u8(c), strength), 8)));
             }
             
             uint32x4_t d = vld1q_u32(dst + x);
