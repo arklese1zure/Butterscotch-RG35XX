@@ -52,6 +52,20 @@ typedef struct GLModernRenderer {
     uint32_t fogColor; // BGR
 
     GLuint vao, vertexBufferVao, vbo, ebo;
+    // Memory limits (see GLRenderer_ensureTextureLoaded and dropUnusedSurfaces).
+    int32_t* pageLastUsed;      // frame each original TXTR page was last drawn from
+    uint32_t pageLastUsedCount;
+    size_t pageBytesLoaded;
+    size_t pageBudgetBytes;     // GL_TEXTURE_BUDGET_MB; 0 = no limit
+    int32_t* surfaceLastUsed;   // frame each surface was last used, by ID
+    uint32_t surfaceLastUsedCount;
+#ifdef TARGET_RG35XX
+#define STREAM_VBO_COUNT 64
+    // Batches cycle through these instead of orphaning vbo (see flushBatch).
+    GLuint streamVbo[STREAM_VBO_COUNT];
+    GLsizeiptr streamVboSize[STREAM_VBO_COUNT];
+    int streamVboNext;
+#endif
 
     BatchType batchType;
     int32_t batchCount;

@@ -88,7 +88,8 @@ void GLCommon_init(Renderer* renderer) {
 
     // Enable blending
     glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    // Normal blending, with alpha building up as src + dst * (1 - src) (see glGpuSetBlendMode).
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
     gl->blendEnable = true;
 
     // Save original counts so we know which slots are from data.win vs dynamic
@@ -319,16 +320,21 @@ void GLCommon_endLetterboxBlit(int32_t fboWidth, int32_t fboHeight, int32_t game
 // ===[ Surface arrays ]===
 
 uint32_t GLCommon_allocateSurfaceSlot(GLuint** surfaces, GLuint** surfaceTexture, int32_t** surfaceWidth, int32_t** surfaceHeight, uint32_t* count) {
-    uint32_t newIndex = *count;
-    (*count)++;
+    // Slot 0 stays empty, so surface IDs start at 1: GameMaker games can use 0 for "not created yet".
+    // AM2R's oControl does, and frees ID 0 every step, which destroyed whatever real surface had it.
+    uint32_t first = *count;
+    uint32_t newIndex = first == 0 ? 1 : first;
+    *count = newIndex + 1;
     *surfaces = (GLuint *)safeRealloc(*surfaces, *count * sizeof(GLuint));
     *surfaceTexture = (GLuint *)safeRealloc(*surfaceTexture, *count * sizeof(GLuint));
     *surfaceWidth = (int32_t *)safeRealloc(*surfaceWidth,   *count * sizeof(int32_t));
     *surfaceHeight = (int32_t *)safeRealloc(*surfaceHeight,  *count * sizeof(int32_t));
-    (*surfaces)[newIndex]       = 0;
-    (*surfaceTexture)[newIndex] = 0;
-    (*surfaceWidth)[newIndex]   = 0;
-    (*surfaceHeight)[newIndex]  = 0;
+    for (uint32_t i = first; i < *count; i++) {
+        (*surfaces)[i]       = 0;
+        (*surfaceTexture)[i] = 0;
+        (*surfaceWidth)[i]   = 0;
+        (*surfaceHeight)[i]  = 0;
+    }
     return newIndex;
 }
 

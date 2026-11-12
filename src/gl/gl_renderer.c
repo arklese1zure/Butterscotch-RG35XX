@@ -27,6 +27,7 @@
 
 // ===[ Constants ]===
 #define MAX_QUADS 4096
+
 #define VERTICES_PER_TRIANGLE 3
 #define VERTICES_PER_QUAD 4
 #define INDICES_PER_QUAD 6
@@ -291,7 +292,7 @@ static void flushBatch(GLRenderer* gl) {
     int32_t indexCount = modernGl->batchCount * INDICES_PER_QUAD;
 
     glBindBuffer(GL_ARRAY_BUFFER, modernGl->vbo);
-    int32_t totalVboSize = MAX_QUADS * VERTICES_PER_QUAD * sizeof(GlVertex);
+    MAYBE_UNUSED int32_t totalVboSize = MAX_QUADS * VERTICES_PER_QUAD * sizeof(GlVertex);
 #ifdef PLATFORM_VITA
     vglBufferData(GL_ARRAY_BUFFER, (void*)gl->vertexData);
     gl->vertexData = (GlVertex*)vglAllocFromScratch((size_t)totalVboSize);
@@ -299,17 +300,41 @@ static void flushBatch(GLRenderer* gl) {
 #else
     int32_t singleVertexCount = (modernGl->batchType == BATCHTYPE_QUAD) ? VERTICES_PER_QUAD : VERTICES_PER_TRIANGLE;
     int32_t vertexCount = modernGl->batchCount * singleVertexCount;
+#ifdef TARGET_RG35XX
+    // The RG35XX's PowerVR driver takes about 1.2 ms to orphan the whole buffer (below): 20 ms a frame in AM2R's
+    // sand room. Instead each batch goes into the next buffer of a ring, overwritten in place, so a buffer is only
+    // reused once the GPU is long done with it.
+    GLuint streamVbo = modernGl->streamVbo[modernGl->streamVboNext];
+    GLsizeiptr* streamSize = &modernGl->streamVboSize[modernGl->streamVboNext];
+    modernGl->streamVboNext = (modernGl->streamVboNext + 1) % STREAM_VBO_COUNT;
+    GLsizeiptr bytes = (GLsizeiptr) (vertexCount * sizeof(GlVertex));
+    glBindBuffer(GL_ARRAY_BUFFER, streamVbo);
+    if (bytes > *streamSize) {
+        GLsizeiptr size = 16384;
+        while (size < bytes) size *= 2;
+        glBufferData(GL_ARRAY_BUFFER, size, nullptr, GL_DYNAMIC_DRAW);
+        *streamSize = size;
+    }
+    glBufferSubData(GL_ARRAY_BUFFER, 0, bytes, gl->vertexData);
+#else
     glBufferData(GL_ARRAY_BUFFER, totalVboSize, nullptr, GL_DYNAMIC_DRAW);
     glBufferSubData(GL_ARRAY_BUFFER, 0, vertexCount * sizeof(GlVertex), gl->vertexData);
 #endif
+#endif
 
 
+    int32_t stride = sizeof(GlVertex);
     if (hasVAO()) {
         glBindVertexArray(modernGl->vao);
+#ifdef TARGET_RG35XX
+        // The VAO remembers which buffer its attributes read: point them at this batch's ring buffer.
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, stride, (void*) offsetof(GlVertex, x));
+        glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE, stride, (void*) offsetof(GlVertex, r));
+        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*) offsetof(GlVertex, u));
+#endif
     } else {
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, modernGl->ebo);
 
-        int32_t stride = sizeof(GlVertex);
         glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, stride, (void*) offsetof(GlVertex, x));
         glEnableVertexAttribArray(0);
         glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE, stride, (void*) offsetof(GlVertex, r));
@@ -329,6 +354,15 @@ static void flushBatch(GLRenderer* gl) {
         glDisableVertexAttribArray(1);
         glDisableVertexAttribArray(2);
     }
+#ifdef TARGET_RG35XX
+    else {
+        // Back to the main buffer, which the other paths that bind the VAO fill and expect it to read.
+        glBindBuffer(GL_ARRAY_BUFFER, modernGl->vbo);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, stride, (void*) offsetof(GlVertex, x));
+        glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE, stride, (void*) offsetof(GlVertex, r));
+        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*) offsetof(GlVertex, u));
+    }
+#endif
 
     modernGl->batchCount = 0;
 }
@@ -579,6 +613,8 @@ static void glInit(Renderer* renderer, DataWin* dataWin) {
         abort();
     }
     modernGl->isGL3 = (ver.major >= 3);
+    // Test hook: MIAUI_FORCE_ES2=1 takes the GLES 2.0 paths (the RG35XX's) on a newer driver, e.g. a PC's.
+    if (getenv("MIAUI_FORCE_ES2") != NULL) modernGl->isGL3 = false;
     modernGl->isGLES = ver.isGLES;
 
     GLCommon_init(renderer);
@@ -720,6 +756,7 @@ static void glInit(Renderer* renderer, DataWin* dataWin) {
     free(uFogColor);
 
     // Create VAO/VBO/EBO
+    logInfo("GL: vertex array objects %s\n", hasVAO() ? "used" : "not available");
     if (hasVAO()) {
         glGenVertexArrays(1, &modernGl->vao);
         glGenVertexArrays(1, &modernGl->vertexBufferVao);
@@ -727,6 +764,11 @@ static void glInit(Renderer* renderer, DataWin* dataWin) {
     }
     glGenBuffers(1, &modernGl->vbo);
     glGenBuffers(1, &modernGl->ebo);
+#ifdef TARGET_RG35XX
+    glGenBuffers(STREAM_VBO_COUNT, modernGl->streamVbo);
+    memset(modernGl->streamVboSize, 0, sizeof(modernGl->streamVboSize));
+    modernGl->streamVboNext = 0;
+#endif
 
     // VBO: sized for max quads
     glBindBuffer(GL_ARRAY_BUFFER, modernGl->vbo);
@@ -871,6 +913,8 @@ static void freeShader(GMLShader* shader) {
 }
 
 static void glDestroy(Renderer* renderer) {
+    free(((GLModernRenderer*) renderer)->pageLastUsed);
+    free(((GLModernRenderer*) renderer)->surfaceLastUsed);
     GLRenderer* gl = (GLRenderer*) renderer;
     GLModernRenderer* modernGl = (GLModernRenderer*) gl;
 
@@ -887,6 +931,9 @@ static void glDestroy(Renderer* renderer) {
     }
     glDeleteBuffers(1, &modernGl->vbo);
     glDeleteBuffers(1, &modernGl->ebo);
+#ifdef TARGET_RG35XX
+    glDeleteBuffers(STREAM_VBO_COUNT, modernGl->streamVbo);
+#endif
 
     free(modernGl->uWorldViewProjection);
     free(modernGl->uFogColor);
@@ -962,9 +1009,13 @@ static void glEndFrameInit(Renderer* renderer) {
     }
 }
 
+static void dropUnusedSurfaces(GLRenderer* gl);
+
 static void glEndFrameEnd(Renderer* renderer) {
     GLRenderer* gl = (GLRenderer*) renderer;
     GLModernRenderer* modernGl = (GLModernRenderer*) gl;
+
+    dropUnusedSurfaces(gl);
 
     if (renderer->runner->usingAppSurface && !renderer->runner->appSurfaceAutoDraw) {
         return;
@@ -1018,9 +1069,95 @@ static void glClearScreen(Renderer* renderer, uint32_t color, float alpha) {
     glClear(GL_COLOR_BUFFER_BIT);
 }
 
+// ===[ Memory limits ]===
+// The GPU keeps every texture page it loads and every surface a game forgets to free. On the RG35XX (256 MB) a
+// long AM2R session grew to 155 MB and was killed. Pages over GL_TEXTURE_BUDGET_MB are unloaded, least recently
+// used first, and decoded again when drawn from; surfaces unused for a minute are freed, which GameMaker allows
+// (surfaces are volatile: games check surface_exists and recreate them). AM2R leaks one in every dark room.
+#define PAGE_KEEP_FRAMES 60       // a page drawn from in the last second stays, so a busy room can't thrash
+#define SURFACE_DROP_FRAMES 3600  // one minute at 60 fps
+
+static int32_t currentFrame(GLRenderer* gl) {
+    return gl->base.runner != nullptr ? (int32_t) gl->base.runner->frameCount : 0;
+}
+
+static void touchSurface(GLRenderer* gl, int32_t surfaceId) {
+    GLModernRenderer* modernGl = (GLModernRenderer*) gl;
+    if (surfaceId < 0) return;
+    if ((uint32_t) surfaceId >= modernGl->surfaceLastUsedCount) {
+        uint32_t count = (uint32_t) surfaceId + 64;
+        modernGl->surfaceLastUsed = (int32_t*) safeRealloc(modernGl->surfaceLastUsed, count * sizeof(int32_t));
+        for (uint32_t i = modernGl->surfaceLastUsedCount; i < count; i++) modernGl->surfaceLastUsed[i] = 0;
+        modernGl->surfaceLastUsedCount = count;
+    }
+    modernGl->surfaceLastUsed[surfaceId] = currentFrame(gl);
+}
+
+static void touchPage(GLRenderer* gl, uint32_t pageId) {
+    GLModernRenderer* modernGl = (GLModernRenderer*) gl;
+    if (pageId >= gl->originalTexturePageCount) return; // pages made at run time can't be reloaded
+    if (modernGl->pageLastUsedCount < gl->originalTexturePageCount) {
+        modernGl->pageLastUsed = (int32_t*) safeRealloc(modernGl->pageLastUsed, gl->originalTexturePageCount * sizeof(int32_t));
+        for (uint32_t i = modernGl->pageLastUsedCount; i < gl->originalTexturePageCount; i++) modernGl->pageLastUsed[i] = 0;
+        modernGl->pageLastUsedCount = gl->originalTexturePageCount;
+    }
+    modernGl->pageLastUsed[pageId] = currentFrame(gl);
+}
+
+static bool pageCanReload(GLRenderer* gl, uint32_t pageId) {
+    DataWin* dw = gl->base.dataWin;
+    Texture* txtr = &dw->txtr.textures[pageId];
+    // Mapped, in its own file, or read again from data.win (--lazy-textures: DataWin_loadTxtrIfNeeded).
+    return txtr->mapped || txtr->externalPath != nullptr || (dw->lazyLoadFile != nullptr && txtr->blobOffset != 0);
+}
+
+// Unloads pages, least recently used first, until `bytes` more fit in the budget or nothing more may go.
+static void makeRoomForPage(GLRenderer* gl, uint32_t pageId, size_t bytes) {
+    GLModernRenderer* modernGl = (GLModernRenderer*) gl;
+    if (modernGl->pageBudgetBytes == 0) return;
+    int32_t frame = currentFrame(gl);
+    while (modernGl->pageBytesLoaded + bytes > modernGl->pageBudgetBytes) {
+        int32_t oldest = -1;
+        for (uint32_t i = 0; i < modernGl->pageLastUsedCount; i++) {
+            if (i == pageId || !gl->textureLoaded[i] || gl->textureWidths[i] == 0 || !pageCanReload(gl, i)) continue;
+            if (frame - modernGl->pageLastUsed[i] < PAGE_KEEP_FRAMES) continue;
+            if (oldest < 0 || modernGl->pageLastUsed[i] < modernGl->pageLastUsed[oldest]) oldest = (int32_t) i;
+        }
+        if (oldest < 0) return;
+        flushBatch(gl);
+        size_t freed = (size_t) gl->textureWidths[oldest] * (size_t) gl->textureHeights[oldest] * 4;
+        // Keep the texture's name (anything holding it stays valid), but give its storage back.
+        static const uint8_t blank[4] = { 0, 0, 0, 0 };
+        glBindTexture(GL_TEXTURE_2D, gl->glTextures[oldest]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, blank);
+        gl->textureLoaded[oldest] = false;
+        gl->textureWidths[oldest] = 0;
+        gl->textureHeights[oldest] = 0;
+        modernGl->pageBytesLoaded -= freed < modernGl->pageBytesLoaded ? freed : modernGl->pageBytesLoaded;
+        logInfo("GL: Unloaded TXTR page %d (last drawn %d frames ago)\n", oldest, frame - modernGl->pageLastUsed[oldest]);
+    }
+}
+
+static void glSurfaceFree(Renderer* renderer, int32_t surfaceID);
+
+// Frees surfaces nobody has used for SURFACE_DROP_FRAMES. Checked every 10 seconds.
+static void dropUnusedSurfaces(GLRenderer* gl) {
+    GLModernRenderer* modernGl = (GLModernRenderer*) gl;
+    int32_t frame = currentFrame(gl);
+    if (frame % 600 != 0) return;
+    int32_t appId = gl->base.runner != nullptr ? gl->base.runner->applicationSurfaceId : -1;
+    for (uint32_t i = 1; i < gl->surfaceCount && i < modernGl->surfaceLastUsedCount; i++) {
+        if (gl->surfaces[i] == 0 || (int32_t) i == appId) continue;
+        if (frame - modernGl->surfaceLastUsed[i] < SURFACE_DROP_FRAMES) continue;
+        logInfo("GL: Dropping surface %u, unused for %d frames\n", i, frame - modernGl->surfaceLastUsed[i]);
+        glSurfaceFree(&gl->base, (int32_t) i);
+    }
+}
+
 // Lazily decodes and uploads a TXTR page on first access.
 // Returns true if the texture is ready, false if it failed to decode.
 bool GLRenderer_ensureTextureLoaded(GLRenderer* gl, uint32_t pageId) {
+    touchPage(gl, pageId);
     if (gl->textureLoaded[pageId]) return (gl->textureWidths[pageId] != 0);
 
     gl->textureLoaded[pageId] = true;
@@ -1064,11 +1201,15 @@ bool GLRenderer_ensureTextureLoaded(GLRenderer* gl, uint32_t pageId) {
         dropMappedRange(txtr->blobData, 0, txtr->blobSize);
     }
 
+    if (pageId < gl->originalTexturePageCount && pageCanReload(gl, pageId))
+        makeRoomForPage(gl, pageId, (size_t) w * (size_t) h * 4);
+
     gl->textureWidths[pageId] = w;
     gl->textureHeights[pageId] = h;
 
     glBindTexture(GL_TEXTURE_2D, gl->glTextures[pageId]);
     glTexImage2D(GL_TEXTURE_2D, 0, gl->textureFormat, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    if (pageId < gl->originalTexturePageCount) ((GLModernRenderer*) gl)->pageBytesLoaded += (size_t) w * (size_t) h * 4;
 
     free(pixels);
 
@@ -2344,6 +2485,24 @@ static uint32_t findOrAllocTpagSlot(DataWin* dw, uint32_t originalTpagCount) {
     return newIndex;
 }
 
+// A new texture holds whatever was in that memory before, often pieces of freed textures. GameMaker games can
+// show a surface they haven't drawn all of (AM2R's transitions and water effects do), so clear it to transparent
+// black like the software renderer. Expects the surface's FBO to be bound.
+static void clearBoundSurface(void) {
+    GLfloat clearColor[4];
+    glGetFloatv(GL_COLOR_CLEAR_VALUE, clearColor);
+    GLboolean scissor = glIsEnabled(GL_SCISSOR_TEST);
+    GLboolean colorMask[4];
+    glGetBooleanv(GL_COLOR_WRITEMASK, colorMask);
+    if (scissor) glDisable(GL_SCISSOR_TEST);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glClearColor(clearColor[0], clearColor[1], clearColor[2], clearColor[3]);
+    glColorMask(colorMask[0], colorMask[1], colorMask[2], colorMask[3]);
+    if (scissor) glEnable(GL_SCISSOR_TEST);
+}
+
 static int32_t glCreateSurface(Renderer* renderer, int32_t width, int32_t height) {
     GLRenderer* gl = (GLRenderer*) renderer;
     flushBatch(gl);
@@ -2369,10 +2528,12 @@ static int32_t glCreateSurface(Renderer* renderer, int32_t width, int32_t height
 
     glBindFramebuffer(GL_FRAMEBUFFER, gl->surfaces[surfaceIndex]);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, gl->surfaceTexture[surfaceIndex], 0);
+    clearBoundSurface();
 
     gl->surfaceWidth[surfaceIndex] = width;
     gl->surfaceHeight[surfaceIndex] = height;
 
+    touchSurface(gl, (int32_t) surfaceIndex);
     logInfo("GL: Created surface %u with size (%dx%d)\n", surfaceIndex, width, height);
     glBindFramebuffer(GL_FRAMEBUFFER, (GLuint) prevBinding);
 
@@ -2406,6 +2567,8 @@ static void glSurfaceFree(Renderer* renderer, int32_t surfaceID) {
     // Freeing the application_surface is a no-op from GML; the runner manages its lifecycle via application_surface_enable.
     if (surfaceID == renderer->runner->applicationSurfaceId) return;
 
+    // Freeing an ID that no longer exists is normal: GameMaker ignores it, and AM2R does it every step.
+    if (gl->surfaces[surfaceID] == 0 && gl->surfaceTexture[surfaceID] == 0) return;
     if (gl->surfaceTexture[surfaceID] != 0) glDeleteTextures(1, &gl->surfaceTexture[surfaceID]);
     if (gl->surfaces[surfaceID] != 0) glDeleteFramebuffers(1, &gl->surfaces[surfaceID]);
     gl->surfaces[surfaceID] = 0;
@@ -2417,6 +2580,7 @@ static void glSurfaceFree(Renderer* renderer, int32_t surfaceID) {
 
 static void glSurfaceResize(Renderer* renderer, int32_t surfaceID, int32_t width, int32_t height) {
     GLRenderer* gl = (GLRenderer*) renderer;
+    touchSurface(gl, surfaceID);
     flushBatch(gl);
 
     if (0 > surfaceID || (uint32_t) surfaceID >= gl->surfaceCount) return;
@@ -2438,6 +2602,7 @@ static void glSurfaceResize(Renderer* renderer, int32_t surfaceID, int32_t width
 
     glBindFramebuffer(GL_FRAMEBUFFER, gl->surfaces[surfaceID]);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, gl->surfaceTexture[surfaceID], 0);
+    clearBoundSurface();
 
     gl->surfaceWidth[surfaceID] = width;
     gl->surfaceHeight[surfaceID] = height;
@@ -2448,18 +2613,21 @@ static void glSurfaceResize(Renderer* renderer, int32_t surfaceID, int32_t width
 
 static bool glSurfaceExists(Renderer* renderer, int32_t surfaceId) {
     GLRenderer* gl = (GLRenderer*) renderer;
+    touchSurface(gl, surfaceId);
     if (0 > surfaceId || (uint32_t) surfaceId >= gl->surfaceCount) return false;
     return gl->surfaces[surfaceId] != 0;
 }
 
 static bool glSurfaceGetPixels(Renderer* renderer, int32_t surfaceId, uint8_t* outRGBA) {
     GLRenderer* gl = (GLRenderer*) renderer;
+    touchSurface(gl, surfaceId);
     flushBatch(gl);
     return GLCommon_surfaceGetPixels(gl->surfaces, gl->surfaceWidth, gl->surfaceHeight, gl->surfaceCount, surfaceId, outRGBA);
 }
 
 static bool glSetRenderTarget(Renderer* renderer, int32_t surfaceId, bool implicitApplicationSurface) {
     GLRenderer* gl = (GLRenderer*) renderer;
+    touchSurface(gl, surfaceId);
     flushBatch(gl);
 
     int32_t viewCurrent = 0;
@@ -2530,6 +2698,8 @@ static bool glSetRenderTarget(Renderer* renderer, int32_t surfaceId, bool implic
 
 static void glSurfaceCopy(Renderer* renderer, int32_t destSurfaceID, int32_t destX, int32_t destY, int32_t srcSurfaceID, int32_t srcX, int32_t srcY, int32_t srcW, int32_t srcH, bool part) {
     GLRenderer* gl = (GLRenderer*) renderer;
+    touchSurface(gl, destSurfaceID);
+    touchSurface(gl, srcSurfaceID);
     GLModernRenderer* modernGl = (GLModernRenderer*) gl;
 
     flushBatch(gl);
@@ -2571,6 +2741,7 @@ static void glSurfaceCopy(Renderer* renderer, int32_t destSurfaceID, int32_t des
 
 static float glGetSurfaceWidth(Renderer* renderer, int32_t surfaceId) {
     GLRenderer* gl = (GLRenderer*) renderer;
+    touchSurface(gl, surfaceId);
     if (0 > surfaceId || (uint32_t) surfaceId >= gl->surfaceCount) return 0.0f;
     if (gl->surfaces[surfaceId] == 0) return 0.0f;
     return (float) gl->surfaceWidth[surfaceId];
@@ -2578,6 +2749,7 @@ static float glGetSurfaceWidth(Renderer* renderer, int32_t surfaceId) {
 
 static float glGetSurfaceHeight(Renderer* renderer, int32_t surfaceId) {
     GLRenderer* gl = (GLRenderer*) renderer;
+    touchSurface(gl, surfaceId);
     if (0 > surfaceId || (uint32_t) surfaceId >= gl->surfaceCount) return 0.0f;
     if (gl->surfaces[surfaceId] == 0) return 0.0f;
     return (float) gl->surfaceHeight[surfaceId];
@@ -2585,6 +2757,7 @@ static float glGetSurfaceHeight(Renderer* renderer, int32_t surfaceId) {
 
 static void glDrawSurface(Renderer* renderer, int32_t surfaceID, int32_t srcLeft, int32_t srcTop, int32_t srcWidth, int32_t srcHeight, float x, float y, float xscale, float yscale, float angleDeg, uint32_t color, float alpha) {
     GLRenderer* gl = (GLRenderer*) renderer;
+    touchSurface(gl, surfaceID);
 
     if (0 > surfaceID || (uint32_t) surfaceID >= gl->surfaceCount) return;
     if (gl->surfaceTexture[surfaceID] == 0) return;
@@ -2626,6 +2799,7 @@ static void glDrawSurface(Renderer* renderer, int32_t surfaceID, int32_t srcLeft
 
 static void glDrawSurfaceColor(Renderer* renderer, int32_t surfaceID, int32_t srcLeft, int32_t srcTop, int32_t srcWidth, int32_t srcHeight, float x, float y, float xscale, float yscale, float angleDeg, uint32_t color1, uint32_t color2, uint32_t color3, uint32_t color4, float alpha) {
     GLRenderer* gl = (GLRenderer*) renderer;
+    touchSurface(gl, surfaceID);
 
     if (0 > surfaceID || (uint32_t) surfaceID >= gl->surfaceCount) return;
     if (gl->surfaceTexture[surfaceID] == 0) return;
@@ -2692,6 +2866,7 @@ static void glDrawSurfaceColor(Renderer* renderer, int32_t surfaceID, int32_t sr
 
 static void glDrawSurfaceTiled(Renderer* renderer, int32_t surfaceID, float x, float y, float xscale, float yscale, float roomW, float roomH, uint32_t color, float alpha) {
     GLRenderer* gl = (GLRenderer*) renderer;
+    touchSurface(gl, surfaceID);
 
     if (0 > surfaceID || (uint32_t) surfaceID >= gl->surfaceCount) return;
     if (gl->surfaceTexture[surfaceID] == 0) return;
@@ -2732,6 +2907,7 @@ static int32_t glCreateSpriteFromSurface(Renderer* renderer, int32_t surfaceID, 
     (void)smooth;
     (void)removeback;
     GLRenderer* gl = (GLRenderer*) renderer;
+    touchSurface(gl, surfaceID);
     DataWin* dw = renderer->dataWin;
 
     if (0 >= w || 0 >= h) return -1;
@@ -2862,9 +3038,18 @@ static void glGpuSetBlendMode(Renderer* renderer, int32_t mode) {
     gl->currentDFactor = GLCommon_blendModeToDFactor(mode);
     gl->currentSFactorAlpha = gl->currentSFactor;
     gl->currentDFactorAlpha = gl->currentDFactor;
+    // Alpha (coverage) builds up as src + dst * (1 - src) in all three modes, as in the software renderer: what
+    // was solid stays solid. With the colour's factors, normal drawing at half alpha left a solid pixel at 75%, and
+    // subtracting took alpha away. AM2R's fades (door transitions, the screw attack trail, the save message,
+    // fading walls), its darkness and its water and lava tints then left its scene surface see-through, and the
+    // room's blue background showed through when that surface was drawn.
+    if (mode == bm_normal || mode == bm_add || mode == bm_subtract) {
+        gl->currentSFactorAlpha = GL_ONE;
+        gl->currentDFactorAlpha = GL_ONE_MINUS_SRC_ALPHA;
+    }
 
     glBlendEquation(GLCommon_blendModeToEquation(mode));
-    glBlendFunc(gl->currentSFactor, gl->currentDFactor);
+    glBlendFuncSeparate(gl->currentSFactor, gl->currentDFactor, gl->currentSFactorAlpha, gl->currentDFactorAlpha);
 }
 
 static void glGpuSetBlendModeExt(Renderer* renderer, int32_t sfactor, int32_t dfactor, int32_t sfactor_alpha, int32_t dfactor_alpha) {
@@ -3112,6 +3297,7 @@ static bool glResolveTextureHandle(GLRenderer* gl, uint32_t texHandle, TexturePa
 // surface_get_texture: returns a handle that texture_get_texel_*/texture_get_uvs/texture_set_stage resolve.
 static uint32_t glSurfaceGetTexture(Renderer* renderer, int32_t surfaceID) {
     GLRenderer* gl = (GLRenderer*) renderer;
+    touchSurface(gl, surfaceID);
     if (surfaceID < 0 || (uint32_t) surfaceID >= gl->surfaceCount) return 0;
     if (gl->surfaceTexture[surfaceID] == 0) return 0;
     return GL_SURFACE_TEXTURE_FLAG | (uint32_t) surfaceID;
@@ -3247,6 +3433,8 @@ Renderer* GLRenderer_create(void) {
     GLModernRenderer* modernGl = (GLModernRenderer *)safeCalloc(1, sizeof(GLModernRenderer));
     GLRenderer* gl = &modernGl->base;
     gl->glMode = GL_MODE_MODERN;
+    const char* budgetMb = getenv("GL_TEXTURE_BUDGET_MB");
+    modernGl->pageBudgetBytes = budgetMb != NULL ? (size_t) atoi(budgetMb) * 1024 * 1024 : 0;
     
     Renderer* base = &gl->base;
     base->vtable = &glVtable;
