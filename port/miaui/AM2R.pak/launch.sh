@@ -12,7 +12,11 @@ date > log.txt
 overclock.elf $CPU_SPEED_GAME
 ## vsync off: steady 60 fps pacing (with it on, about 1 frame in 50 waits an extra refresh); 1 turns it on
 export MIAUI_VSYNC=0
-AM2R_PROFILE_ROOM=rm_a0h04d ./butterscotch --trace-frames --load-type map-file --lazy-textures --lazy-rooms --lazy-audio \
+## renderer: modern-gl (the GPU) or software
+RENDERER=modern-gl
+## GPU texture memory: older pages are unloaded past this many MB (the device has 256 MB in all)
+export GL_TEXTURE_BUDGET_MB=48
+AM2R_PROFILE_ROOM=rm_a3h04 ./butterscotch --renderer "$RENDERER" --trace-frames --load-type map-file --lazy-textures --lazy-rooms --lazy-audio \
     --save-folder ./save data.win >> log.txt 2>&1
 echo "exit=$?" >> log.txt
 date >> log.txt

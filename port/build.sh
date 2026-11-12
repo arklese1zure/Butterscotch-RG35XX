@@ -38,7 +38,7 @@ arm|arm-clean)
     '
     ;;
 miaui|miaui-clean)
-    # MiaUI (glibc, SDL2, GLES2: src/backends/miaui.c) needs the miaui-toolchain image from
+    # MiaUI (glibc, SDL2, GLES2: src/backends/miaui.c; software and modern GL renderers) needs the miaui-toolchain image from
     # rg35xx-toolchain/miaui/Dockerfile. Builds a copy in workspace/am2r-miaui, so the GarlicOS build stays.
     podman run --rm --network=none -v "$WORKSPACE":/root/workspace -e MODE="$MODE" miaui-toolchain /bin/bash -c '
         set -e
@@ -50,7 +50,7 @@ miaui|miaui-clean)
         set -o pipefail
         make -j"$(nproc)" CC=arm-buildroot-linux-gnueabihf-gcc BACKEND=miaui AUDIO_BACKEND=miniaudio PKG_CONFIG=true \
             MIAUI_CFLAGS="$($S/usr/bin/sdl2-config --cflags)" MIAUI_LIBS="$($S/usr/bin/sdl2-config --libs) -lGLESv2" \
-            DISABLE_LEGACY_GL=1 DISABLE_MODERN_GL=1 DISABLE_WAD17=1 DISABLE_PHYSICS=1 \
+            DISABLE_LEGACY_GL=1 DISABLE_WAD17=1 DISABLE_PHYSICS=1 \
             DISABLE_VM_TRACING=1 DISABLE_VM_GML_PROFILER=1 DISABLE_VM_OPCODE_PROFILER=1 \
             CFLAGS="-O3 -g -DNDEBUG -DTARGET_RG35XX -marm -mcpu=cortex-a9 -mfpu=neon -mfloat-abi=hard" \
             2>&1 | tee build-miaui.log | grep -v "linker input file unused" | tail -5

@@ -2,6 +2,9 @@
 // PowerVR SGX544. Input, memory logging and the generic joystick path follow sdl1.c's GarlicOS code.
 // The software renderer's frame is converted to RGB565 at the game's own size and uploaded as a texture;
 // the GPU scales it to the 640x480 screen. Going through sdl12-compat cost about 12 ms a frame instead.
+// With --renderer modern-gl the game draws on the GPU itself, into an offscreen target of the same size the
+// software renderer gets (320x240 for AM2R), which is then scaled to the screen the same way. The game sees
+// the same window size with either renderer: AM2R sizes its HUD from it.
 #include <ctype.h>
 #include "string_compat.h"
 #include "stdio_compat.h"
@@ -9,6 +12,7 @@
 
 #include <SDL2/SDL.h>
 #include <GLES2/gl2.h>
+#include <GLES2/gl2ext.h>
 
 #include "common.h"
 #include "input_recording.h"
@@ -276,6 +280,9 @@ static bool platformGetWindowFocus(void) {
 // ===[ Presenting ]===
 static GLuint fbTexture;
 static GLuint fbProgram;
+static GLint fbFlipLocation;
+static GLuint hostFbo; // the GPU renderer's target, at the game's size
+static PFNGLBINDVERTEXARRAYOESPROC bindVertexArrayOES;
 static uint16_t* fbPixels565;
 static const uint32_t* nextFbPixels = NULL;
 
@@ -297,8 +304,9 @@ static bool setupPresent(void) {
     fbProgram = glCreateProgram();
     glAttachShader(fbProgram, compileShader(GL_VERTEX_SHADER,
         "attribute vec2 pos;\n"
+        "uniform float flipY;\n"
         "varying vec2 uv;\n"
-        "void main() { uv = vec2(pos.x * 0.5 + 0.5, 0.5 - pos.y * 0.5); gl_Position = vec4(pos, 0.0, 1.0); }\n"));
+        "void main() { uv = vec2(pos.x * 0.5 + 0.5, 0.5 + flipY * pos.y * 0.5); gl_Position = vec4(pos, 0.0, 1.0); }\n"));
     glAttachShader(fbProgram, compileShader(GL_FRAGMENT_SHADER,
         "precision mediump float;\n"
         "varying vec2 uv;\n"
@@ -314,10 +322,9 @@ static bool setupPresent(void) {
     }
     glUseProgram(fbProgram);
     glUniform1i(glGetUniformLocation(fbProgram, "tex"), 0);
-
-    static const float quad[] = { -1, -1, 1, -1, -1, 1, 1, 1 };
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, quad);
-    glEnableVertexAttribArray(0);
+    fbFlipLocation = glGetUniformLocation(fbProgram, "flipY");
+    // The software frame is uploaded top row first; an FBO's texture has its bottom row first.
+    glUniform1f(fbFlipLocation, gfx == SOFTWARE ? -1.0f : 1.0f);
 
     glGenTextures(1, &fbTexture);
     glBindTexture(GL_TEXTURE_2D, fbTexture);
@@ -326,6 +333,26 @@ static bool setupPresent(void) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    if (gfx != SOFTWARE) {
+        // The GPU renderer draws the frame into this, then platformSwapBuffers scales it to the screen.
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, rgGameW, rgGameH, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glGenFramebuffers(1, &hostFbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, hostFbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, fbTexture, 0);
+        GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        if (status != GL_FRAMEBUFFER_COMPLETE) {
+            logError("MiaUI: the offscreen target isn't complete (0x%x)\n", status);
+            return false;
+        }
+        bindVertexArrayOES = (PFNGLBINDVERTEXARRAYOESPROC) SDL_GL_GetProcAddress("glBindVertexArrayOES");
+        return true;
+    }
+
+    static const float quad[] = { -1, -1, 1, -1, -1, 1, 1, 1 };
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, quad);
+    glEnableVertexAttribArray(0);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 2);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, rgGameW, rgGameH, 0, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, NULL);
     glViewport(0, 0, RG35XX_SCREEN_W, RG35XX_SCREEN_H);
@@ -334,6 +361,68 @@ static bool setupPresent(void) {
 
     fbPixels565 = malloc((size_t) rgGameW * rgGameH * sizeof(uint16_t));
     return fbPixels565 != NULL;
+}
+
+unsigned int platformGetHostFramebuffer(void) {
+    return hostFbo;
+}
+
+// Scales the GPU renderer's frame to the screen, leaving the GL state as the renderer had it.
+static void presentHostFramebuffer(void) {
+    GLint program, activeTexture, texture0, arrayBuffer, framebuffer, vertexArray = 0, viewport[4];
+    GLint attribEnabled, attribSize, attribType, attribNormalized, attribStride, attribBuffer;
+    GLvoid* attribPointer;
+    glGetIntegerv(GL_CURRENT_PROGRAM, &program);
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &activeTexture);
+    glActiveTexture(GL_TEXTURE0);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &texture0);
+    glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &arrayBuffer);
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &framebuffer);
+    glGetIntegerv(GL_VIEWPORT, viewport);
+    if (bindVertexArrayOES != NULL) {
+        glGetIntegerv(GL_VERTEX_ARRAY_BINDING_OES, &vertexArray);
+        bindVertexArrayOES(0);
+    }
+    // Attribute 0 of the default vertex array, which the renderer uses when it has no VAOs.
+    glGetVertexAttribiv(0, GL_VERTEX_ATTRIB_ARRAY_ENABLED, &attribEnabled);
+    glGetVertexAttribiv(0, GL_VERTEX_ATTRIB_ARRAY_SIZE, &attribSize);
+    glGetVertexAttribiv(0, GL_VERTEX_ATTRIB_ARRAY_TYPE, &attribType);
+    glGetVertexAttribiv(0, GL_VERTEX_ATTRIB_ARRAY_NORMALIZED, &attribNormalized);
+    glGetVertexAttribiv(0, GL_VERTEX_ATTRIB_ARRAY_STRIDE, &attribStride);
+    glGetVertexAttribiv(0, GL_VERTEX_ATTRIB_ARRAY_BUFFER_BINDING, &attribBuffer);
+    glGetVertexAttribPointerv(0, GL_VERTEX_ATTRIB_ARRAY_POINTER, &attribPointer);
+    GLboolean blend = glIsEnabled(GL_BLEND);
+    GLboolean scissor = glIsEnabled(GL_SCISSOR_TEST);
+    GLboolean colorMask[4];
+    glGetBooleanv(GL_COLOR_WRITEMASK, colorMask);
+
+    static const float quad[] = { -1, -1, 1, -1, -1, 1, 1, 1 };
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glViewport(0, 0, RG35XX_SCREEN_W, RG35XX_SCREEN_H);
+    glDisable(GL_BLEND);
+    glDisable(GL_SCISSOR_TEST);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glUseProgram(fbProgram);
+    glBindTexture(GL_TEXTURE_2D, fbTexture);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, quad);
+    glEnableVertexAttribArray(0);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    // Put back what the renderer had.
+    glBindBuffer(GL_ARRAY_BUFFER, (GLuint) attribBuffer);
+    glVertexAttribPointer(0, attribSize, (GLenum) attribType, (GLboolean) attribNormalized, attribStride, attribPointer);
+    if (!attribEnabled) glDisableVertexAttribArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, (GLuint) arrayBuffer);
+    if (bindVertexArrayOES != NULL) bindVertexArrayOES((GLuint) vertexArray);
+    glBindTexture(GL_TEXTURE_2D, (GLuint) texture0);
+    glActiveTexture((GLenum) activeTexture);
+    glUseProgram((GLuint) program);
+    glColorMask(colorMask[0], colorMask[1], colorMask[2], colorMask[3]);
+    if (blend) glEnable(GL_BLEND);
+    if (scissor) glEnable(GL_SCISSOR_TEST);
+    glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+    glBindFramebuffer(GL_FRAMEBUFFER, (GLuint) framebuffer);
 }
 
 bool platformInit(int32_t reqW, int32_t reqH, const char *title, bool headless) {
@@ -360,11 +449,6 @@ bool platformInit(int32_t reqW, int32_t reqH, const char *title, bool headless) 
     loadGamepadMappings();
 
     if (headless) return true;
-
-    if (gfx != SOFTWARE) {
-        logError("Fatal: the MiaUI backend only presents the software renderer so far\n");
-        return false;
-    }
 
     // A 16-bit screen, like MiaUI's own UI: the game's frame is 16-bit anyway.
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
@@ -393,7 +477,8 @@ bool platformInit(int32_t reqW, int32_t reqH, const char *title, bool headless) 
     const char* vsync = getenv("MIAUI_VSYNC");
     int interval = (vsync != NULL && vsync[0] == '0') ? 0 : 1;
     SDL_GL_SetSwapInterval(interval);
-    logInfo("MiaUI: GLES2 %s, game %dx%d, vsync %d\n", (const char*) glGetString(GL_RENDERER), rgGameW, rgGameH, interval);
+    logInfo("MiaUI: GLES2 %s, %s renderer, game %dx%d, vsync %d\n", (const char*) glGetString(GL_RENDERER),
+            gfx == SOFTWARE ? "software" : "GPU", rgGameW, rgGameH, interval);
     SDL_ShowCursor(SDL_DISABLE);
 
     return setupPresent();
@@ -453,7 +538,40 @@ void rg35xxLogMemory(const char* where) {
 }
 
 void platformSwapBuffers(void) {
-    if (window == NULL || nextFbPixels == NULL) return;
+    if (window == NULL) return;
+    if (gfx != SOFTWARE) {
+        presentHostFramebuffer();
+        SDL_GL_SwapWindow(window);
+        return;
+    }
+    if (nextFbPixels == NULL) return;
+    {
+        // Test hook: MIAUI_DUMP_FRAMES="400,850" saves those software frames as /tmp/swframe-N.ppm, to compare
+        // with the GPU renderer's --screenshot of the same frame.
+        static const char* dumpFrames = NULL;
+        static bool dumpRead = false;
+        if (!dumpRead) { dumpFrames = getenv("MIAUI_DUMP_FRAMES"); dumpRead = true; }
+        if (dumpFrames != NULL) {
+            char key[16];
+            snprintf(key, sizeof(key), "%d", (int) g_runner->frameCount);
+            const char* hit = strstr(dumpFrames, key);
+            size_t len = strlen(key);
+            if (hit != NULL && (hit == dumpFrames || hit[-1] == ',') && (hit[len] == ',' || hit[len] == '\0')) {
+                char path[64];
+                snprintf(path, sizeof(path), "/tmp/swframe-%s.ppm", key);
+                FILE* f = fopen(path, "wb");
+                if (f != NULL) {
+                    fprintf(f, "P6\n%d %d\n255\n", rgGameW, rgGameH);
+                    for (size_t i = 0; i < (size_t) rgGameW * rgGameH; i++) {
+                        uint32_t c = nextFbPixels[i];
+                        unsigned char rgb[3] = { (unsigned char) (c >> 16), (unsigned char) (c >> 8), (unsigned char) c };
+                        fwrite(rgb, 1, 3, f);
+                    }
+                    fclose(f);
+                }
+            }
+        }
+    }
     // The software renderer's frame is 0xXXRRGGBB.
     const uint32_t* src = nextFbPixels;
     uint16_t* dst = fbPixels565;

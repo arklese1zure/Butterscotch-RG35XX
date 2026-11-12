@@ -139,7 +139,7 @@ ifeq ($(BACKEND),miaui)
 # RG35XX on MiaUI: SDL2 + GLES2. Pass MIAUI_CFLAGS/MIAUI_LIBS from the SDK (see port/build.sh miaui).
 SYSCFLAGS += $(MIAUI_CFLAGS)
 LIBS += $(MIAUI_LIBS)
-DEFINES += $(DEFINE)USE_SDL2
+DEFINES += $(DEFINE)USE_SDL2 $(DEFINE)USE_MIAUI
 endif
 ifeq ($(BACKEND),sdl3)
 SDL3_CFLAGS := $(shell $(PKG_CONFIG) $(PKG_CONFIG_FLAGS) --cflags sdl3)

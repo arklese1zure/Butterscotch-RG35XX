@@ -10,7 +10,9 @@ date > log.txt
 overclock.elf $CPU_SPEED_GAME
 ## vsync off: steady 60 fps pacing (with it on, about 1 frame in 50 waits an extra refresh); 1 turns it on
 export MIAUI_VSYNC=0
-RG35XX_FULL_RES=1 SWR_TEXTURE_BUDGET_MB=96 ./butterscotch --trace-frames --load-type map-file --lazy-textures --lazy-rooms --lazy-audio \
+## renderer: software (default) or modern-gl (the GPU)
+RENDERER=software
+RG35XX_FULL_RES=1 SWR_TEXTURE_BUDGET_MB=96 ./butterscotch --renderer "$RENDERER" --trace-frames --load-type map-file --lazy-textures --lazy-rooms --lazy-audio \
     --save-folder ./save game.unx >> log.txt 2>&1
 echo "exit=$?" >> log.txt
 date >> log.txt

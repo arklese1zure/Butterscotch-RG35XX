@@ -150,6 +150,10 @@ bool platformGetScaledWindowSize(int32_t* outW, int32_t* outH);
 void platformSetWindowSize(int32_t width, int32_t height);
 void platformSetWindowTitle(const char* title);
 void platformSleepUntil(uint64_t time);
+#ifdef USE_MIAUI
+// The GPU renderer's target (an FBO at the game's size), which the backend scales to the screen.
+unsigned int platformGetHostFramebuffer(void);
+#endif
 #ifdef TARGET_RG35XX
 // The name of the device button that sends this key, or NULL if none does.
 const char* platformGetButtonLabel(int32_t gmlKey);

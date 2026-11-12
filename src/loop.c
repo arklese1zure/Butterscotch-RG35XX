@@ -925,6 +925,10 @@ int loop(CommandLineArgs args, const char *argv0) {
 #ifdef ENABLE_MODERN_GL
         if (gfx == MODERN_GL) {
             renderer = GLRenderer_create();
+#ifdef USE_MIAUI
+            // The MiaUI backend has the frame drawn offscreen at the game's size and scales it to the screen.
+            ((GLModernRenderer *)renderer)->hostFramebuffer = platformGetHostFramebuffer();
+#endif
             hostFramebuffer = &((GLModernRenderer *)renderer)->hostFramebuffer;
         }
 #endif
@@ -1168,6 +1172,55 @@ int loop(CommandLineArgs args, const char *argv0) {
                 }
             }
 
+            // Test hook: AM2R_KEYS="frame:key[:frames held],..." presses keys at those frames, to reach a game
+            // state (load a save, open the pause screen) in runs with no player. Keys: a letter or digit, or
+            // enter, esc, space, up, down, left, right, shift, ctrl, tab (fast-forward with --fast-forward-speed).
+            {
+                static const char* keyScript = nullptr;
+                static bool keyScriptRead = false;
+                static int32_t releaseAt[256];
+                if (!keyScriptRead) {
+                    keyScript = getenv("AM2R_KEYS");
+                    keyScriptRead = true;
+                    memset(releaseAt, 0, sizeof(releaseAt));
+                }
+                if (keyScript != nullptr) {
+                    int32_t frame = runner->frameCount;
+                    for (int32_t k = 0; k < 256; k++) {
+                        if (releaseAt[k] == frame) RunnerKeyboard_onKeyUp(runner->keyboard, k);
+                    }
+                    const char* p = keyScript;
+                    while (*p != '\0') {
+                        char item[48];
+                        size_t n = strcspn(p, ",");
+                        if (n >= sizeof(item)) n = sizeof(item) - 1;
+                        memcpy(item, p, n);
+                        item[n] = '\0';
+                        p += n;
+                        if (*p == ',') p++;
+                        int32_t at = 0, hold = 4;
+                        char name[24] = "";
+                        if (sscanf(item, "%d:%23[^:]:%d", &at, name, &hold) < 2 || at != frame) continue;
+                        int32_t key = -1;
+                        if (strcmp(name, "enter") == 0) key = VK_ENTER;
+                        else if (strcmp(name, "esc") == 0) key = VK_ESCAPE;
+                        else if (strcmp(name, "space") == 0) key = VK_SPACE;
+                        else if (strcmp(name, "up") == 0) key = VK_UP;
+                        else if (strcmp(name, "down") == 0) key = VK_DOWN;
+                        else if (strcmp(name, "left") == 0) key = VK_LEFT;
+                        else if (strcmp(name, "right") == 0) key = VK_RIGHT;
+                        else if (strcmp(name, "shift") == 0) key = VK_SHIFT;
+                        else if (strcmp(name, "ctrl") == 0) key = VK_CONTROL;
+                        else if (strcmp(name, "tab") == 0) key = VK_TAB;
+                        else if (strlen(name) == 1 && isalnum((unsigned char) name[0])) key = toupper((unsigned char) name[0]);
+                        if (key < 0 || key > 255) continue;
+                        RunnerKeyboard_onKeyDown(runner->keyboard, key);
+                        releaseAt[key] = frame + (hold > 0 ? hold : 1);
+                        logInfo("AM2R_KEYS: frame %d press %s for %d frames\n", frame, name, hold);
+                    }
+                }
+            }
+
             // Test hook: hold the view port offset that the earthquake applies.
             if (runner->frameCount > 400 && getenv("AM2R_TEST_SHAKE") != nullptr) {
                 runner->views[0].portX = 4;
@@ -1186,22 +1239,32 @@ int loop(CommandLineArgs args, const char *argv0) {
                 }
             }
 
-            // Test hook: visit every room in turn, staying in each for this many frames.
+            // Test hook: visit every room in turn, staying in each for this many frames. It starts at
+            // AM2R_GOTO_FRAME (default 300), so a save loaded with AM2R_KEYS brings the player along.
             {
                 static int32_t tourFrames = -1;
+                static int32_t tourStart = 300;
                 if (tourFrames == -1) {
                     const char* tour = getenv("AM2R_ROOM_TOUR");
                     tourFrames = tour != nullptr ? atoi(tour) : 0;
+                    const char* start = getenv("AM2R_GOTO_FRAME");
+                    if (start != nullptr) tourStart = atoi(start);
                 }
-                if (tourFrames > 0 && runner->frameCount >= 300 && (runner->frameCount - 300) % tourFrames == 0) {
-                    int32_t next = (runner->frameCount - 300) / tourFrames;
+                if (tourFrames > 0 && runner->frameCount >= tourStart && (runner->frameCount - tourStart) % tourFrames == 0) {
+                    int32_t next = (runner->frameCount - tourStart) / tourFrames;
                     if ((uint32_t) next < runner->dataWin->room.count) runner->pendingRoom = next;
                     else runner->shouldExit = true;
                 }
             }
 
-            // Test hooks: reach a game room without the menus, or check the crash reporter.
-            if (runner->frameCount == 300) {
+            // Test hooks: reach a game room without the menus, or check the crash reporter. AM2R_GOTO_FRAME
+            // (default 300) moves them later, e.g. after AM2R_KEYS has loaded a save, so the player comes along.
+            static int32_t gotoFrame = -1;
+            if (gotoFrame < 0) {
+                const char* f = getenv("AM2R_GOTO_FRAME");
+                gotoFrame = f != nullptr ? atoi(f) : 300;
+            }
+            if (runner->frameCount == gotoFrame) {
                 if (getenv("AM2R_CRASH_TEST") != nullptr) *(volatile int*) 0 = 1;
                 const char* spawnName = getenv("AM2R_SPAWN");
                 if (spawnName != nullptr) spawnObjectFrame = runner->frameCount + 100;
@@ -1530,15 +1593,16 @@ int loop(CommandLineArgs args, const char *argv0) {
             // Capture screenshot if this frame matches a requested frame
             bool shouldScreenshot = hmget(args.screenshotFrames, runner->frameCount);
 
-            if (shouldScreenshot || RunnerKeyboard_checkPressed(runner->keyboard, VK_F5)) {
-                captureScreenshot(0, args.screenshotPattern, runner->frameCount, fbWidth, fbHeight, true);
+            // Screenshots read the GL framebuffer: the software renderer has none to read.
+            if ((gfx == MODERN_GL || gfx == LEGACY_GL) && (shouldScreenshot || RunnerKeyboard_checkPressed(runner->keyboard, VK_F5))) {
+                captureScreenshot(*hostFramebuffer, args.screenshotPattern, runner->frameCount, fbWidth, fbHeight, true);
                 glBindFramebuffer(GL_FRAMEBUFFER, *hostFramebuffer);
             }
 
             // Dump all surfaces if this frame matches a requested frame
             bool shouldDumpSurfaces = hmget(args.screenshotSurfacesFrames, runner->frameCount);
 
-            if (shouldDumpSurfaces || RunnerKeyboard_checkPressed(runner->keyboard, VK_F6)) {
+            if (gfx == MODERN_GL && (shouldDumpSurfaces || RunnerKeyboard_checkPressed(runner->keyboard, VK_F6))) {
                 GLRenderer* gl = (GLRenderer*) renderer;
                 dumpAllSurfaces(gl, args.screenshotSurfacesPattern, runner->frameCount);
                 glBindFramebuffer(GL_FRAMEBUFFER, *hostFramebuffer);
