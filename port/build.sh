@@ -38,8 +38,9 @@ arm|arm-clean)
     '
     ;;
 miaui|miaui-clean)
-    # MiaUI (glibc, SDL2, GLES2: src/backends/miaui.c; software and modern GL renderers) needs the miaui-toolchain image from
-    # rg35xx-toolchain/miaui/Dockerfile. Builds a copy in workspace/am2r-miaui, so the GarlicOS build stays.
+    # MiaUI (glibc, SDL2, GLES2: src/backends/miaui.c; software and modern GL renderers) needs the miaui-toolchain
+    # image (podman build -t miaui-toolchain port/miaui/). Builds a copy in workspace/am2r-miaui, so the GarlicOS
+    # build stays.
     podman run --rm --network=none -v "$WORKSPACE":/root/workspace -e MODE="$MODE" miaui-toolchain /bin/bash -c '
         set -e
         W=/root/workspace; S=/opt/rg35xx/arm-buildroot-linux-gnueabihf/sysroot
